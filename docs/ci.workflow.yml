@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Два проекта: фронтенд (мягкие настройки) и backend (strict).
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # Схема БД и миграции не должны расходиться: если schema.ts поменяли,
+      # а миграцию не сгенерировали — сборка падает здесь, а не в проде.
+      - name: Check migrations are up to date
+        run: |
+          npx drizzle-kit generate --name ci-check
+          if [ -n "$(git status --porcelain server/db/migrations)" ]; then
+            echo "Схема изменена без миграции. Выполни: npm run db:generate"
+            git status --porcelain server/db/migrations
+            exit 1
+          fi

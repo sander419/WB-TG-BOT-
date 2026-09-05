@@ -1,0 +1,39 @@
+# Локальная инфраструктура для разработки: docker compose up -d
+# Прод разворачивается отдельно — этот файл для машины разработчика.
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: commerceos-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: commerceos
+      POSTGRES_PASSWORD: commerceos
+      POSTGRES_DB: commerceos
+      # Сортировка и регистр важны для поиска по названиям товаров на разных языках.
+      LANG: C.UTF-8
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U commerceos -d commerceos']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Понадобится на этапе 3 (очередь синхронизации и общие лимитеры между инстансами).
+  # Пока не запускается: docker compose --profile queue up -d
+  redis:
+    image: redis:7-alpine
+    container_name: commerceos-redis
+    restart: unless-stopped
+    profiles: ['queue']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+
+volumes:
+  db-data:
+  redis-data:

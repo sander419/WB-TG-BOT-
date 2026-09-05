@@ -3,11 +3,17 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import "dotenv/config";
+import { registerPlatform, startPlatform } from "./server/bootstrap";
+import { env } from "./server/config/env";
 
 const app = express();
-const PORT = 3000;
+const PORT = env.PORT;
 
 app.use(express.json());
+
+// Платформенный слой: /api/platform/* и Telegram-webhook.
+// Демо-эндпоинты ниже остаются на месте до подключения реальных коннекторов.
+registerPlatform(app);
 
 // Initialize Gemini SDK with telemetry header
 const getGeminiClient = () => {
@@ -875,6 +881,8 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`CommerceOS server running on http://0.0.0.0:${PORT}`);
   });
+
+  await startPlatform();
 }
 
 startServer();
