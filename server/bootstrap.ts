@@ -12,10 +12,13 @@ import { connectorsSummary } from './connectors/registry';
 import { unverifiedEndpoints } from './connectors/wildberries/endpoints';
 import { closeDatabase } from './db/client';
 import { registerPlatformRoutes } from './http/platform';
+import { registerStoreRoutes } from './http/stores';
+import { startSyncWorker, stopSyncWorker } from './sync/worker';
 import { startTelegramBot, stopTelegramBot } from './telegram/bot';
 
 export function registerPlatform(app: Express): void {
   registerPlatformRoutes(app);
+  registerStoreRoutes(app);
 }
 
 /** Стартовый отчёт: что настроено, что нет. Читается в логе за пять секунд. */
@@ -58,6 +61,12 @@ export async function startPlatform(): Promise<void> {
     // Бот не должен мешать подняться веб-приложению.
     logger.error({ err: error }, 'Не удалось запустить Telegram-бота');
   }
+
+  // Не await: воркер крутит собственный цикл до остановки процесса.
+  void startSyncWorker().catch((error: unknown) => {
+    logger.error({ err: error }, 'Воркер синхронизации не запустился');
+  });
+
   installShutdownHandlers();
 }
 
@@ -70,6 +79,7 @@ function installShutdownHandlers(): void {
   const shutdown = (signal: string) => {
     void (async () => {
       logger.info({ signal }, 'Останавливаю сервис');
+      stopSyncWorker();
       await stopTelegramBot().catch(() => undefined);
       await closeDatabase().catch(() => undefined);
       process.exit(0);

@@ -14,6 +14,7 @@ import { rateLimiters } from '../core/rateLimiter';
 import { connectorsSummary } from '../connectors/registry';
 import { unverifiedEndpoints } from '../connectors/wildberries/endpoints';
 import { isDatabaseConfigured, pingDatabase } from '../db/client';
+import { isWorkerRunning } from '../sync/worker';
 import { getBot, isTelegramEnabled } from '../telegram/bot';
 import { knownUsersCount } from '../telegram/state';
 
@@ -35,6 +36,7 @@ export function registerPlatformRoutes(app: Express): void {
       database,
       encryption: { configured: isEncryptionConfigured() },
       telegram: { enabled: isTelegramEnabled(), mode: env.TELEGRAM_MODE, knownUsers: knownUsersCount() },
+      syncWorker: { running: isWorkerRunning() },
       warnings: {
         unverifiedWbEndpoints: unverifiedEndpoints(),
       },
