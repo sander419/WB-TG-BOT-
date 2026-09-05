@@ -1,0 +1,7 @@
+{
+  "name": "CommerceOS — AI E-Commerce Operator",
+  "description": "Единая multi-tenant AI-платформа управления продажами на Wildberries, Ozon, Shopify и фабриках Китая (1688, Taobao, JD): AI-оркестратор, Business Intelligence engine, автоматический аудит, прямой сорсинг и безопасные действия.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
