@@ -195,3 +195,46 @@ test('причины отсортированы по деньгам, а не п�
 
   assert.equal(report.findings[0]?.sellerSku, 'крупный');
 });
+
+test('умерший товар виден, даже когда магазин в целом ровный', () => {
+  // Классический случай: один товар кончился, соседний вырос и закрыл дыру.
+  // Витрина выглядит спокойной, а половина ассортимента встала.
+  const report = diagnoseSalesDrop({
+    ...base,
+    current: [line('B', 480_000)],
+    previous: [line('A', 300_000), line('B', 200_000)],
+    coverage: [coverage('A', 0, 'out'), coverage('B', 100, 'ok')],
+  });
+
+  assert.equal(report.hasDrop, true);
+  assert.equal(report.trigger, 'sku', 'разбор запущен товаром, а не магазином');
+  assert.equal(report.findings[0]?.sellerSku, 'A');
+  assert.equal(report.findings[0]?.code, 'stockout');
+});
+
+test('мелкая просадка одного товара при ровном магазине молчит', () => {
+  const report = diagnoseSalesDrop({
+    ...base,
+    current: [line('A', 95_000), line('B', 105_000)],
+    previous: [line('A', 100_000), line('B', 100_000)],
+    coverage: [coverage('A', 50, 'ok'), coverage('B', 50, 'ok')],
+  });
+
+  assert.equal(report.hasDrop, false);
+  assert.equal(report.trigger, 'none');
+});
+
+test('вклад считается от валового падения, а не от общей дельты', () => {
+  // Магазин вырос, но товар A потерял четверть прошлой выручки.
+  const report = diagnoseSalesDrop({
+    ...base,
+    current: [line('B', 900_000)],
+    previous: [line('A', 300_000), line('B', 400_000)],
+    coverage: [coverage('A', 0, 'out')],
+  });
+
+  assert.equal(report.trigger, 'sku');
+  const finding = report.findings.find((item) => item.sellerSku === 'A');
+  assert.ok(finding, 'деление на общую дельту здесь дало бы бессмыслицу');
+  assert.equal(report.breadth, 'concentrated');
+});

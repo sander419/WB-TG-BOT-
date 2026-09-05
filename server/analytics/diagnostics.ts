@@ -43,6 +43,12 @@ export interface DiagnosticFinding {
 
 export interface DiagnosisReport {
   hasDrop: boolean;
+  /**
+   * Что заставило разбираться: просел магазин целиком или отдельный товар.
+   * Второе важно само по себе — товар может умереть, а витрина остаться ровной
+   * за счёт роста соседа, и продавец об этом не узнает.
+   */
+  trigger: 'none' | 'store' | 'sku';
   revenueDelta: Money;
   revenueDeltaPercent: number | null;
   /** Просадка сидит в паре товаров или размазана по всему магазину. */
@@ -69,6 +75,11 @@ export interface DiagnosisInput {
 const DROP_THRESHOLD_PERCENT = -10;
 /** Товар считаем виновником, если он забрал хотя бы столько процентов падения. */
 const CONTRIBUTION_THRESHOLD = 0.15;
+/**
+ * Доля прошлой выручки магазина, потеря которой на одном товаре стоит разбора,
+ * даже если общая выручка не просела.
+ */
+const SKU_COLLAPSE_SHARE = 0.2;
 /** Рост средней цены продажи, начиная с которого он мог сбить конверсию. */
 const PRICE_UP_THRESHOLD_PERCENT = 5;
 const LOW_RATING = 2;
@@ -111,11 +122,24 @@ export function diagnoseSalesDrop(input: DiagnosisInput): DiagnosisReport {
   if (!input.hasSearchPositions) unavailable.push('search_positions');
   if (!input.hasCompetitorPrices) unavailable.push('competitor_prices');
 
-  const hasDrop = deltaPercent !== null && deltaPercent <= DROP_THRESHOLD_PERCENT;
+  const droppers = movements.filter((item) => item.deltaMinor < 0);
+  /**
+   * Валовое падение — сумма просадок по товарам. Считать вклад от общей дельты
+   * нельзя: при выросшем магазине она положительна, и деление уходит в бессмыслицу.
+   */
+  const grossDrop = droppers.reduce((sum, item) => sum + Math.abs(item.deltaMinor), 0);
 
-  if (!hasDrop) {
+  const storeDropped = deltaPercent !== null && deltaPercent <= DROP_THRESHOLD_PERCENT;
+  const collapsedSku =
+    previousRevenue > 0 &&
+    droppers.some((item) => Math.abs(item.deltaMinor) >= previousRevenue * SKU_COLLAPSE_SHARE);
+
+  const trigger: DiagnosisReport['trigger'] = storeDropped ? 'store' : collapsedSku ? 'sku' : 'none';
+
+  if (trigger === 'none' || grossDrop === 0) {
     return {
       hasDrop: false,
+      trigger: 'none',
       revenueDelta: money(deltaMinor, currency),
       revenueDeltaPercent: deltaPercent,
       breadth: 'none',
@@ -134,12 +158,10 @@ export function diagnoseSalesDrop(input: DiagnosisInput): DiagnosisReport {
     lowRatingsBySku.set(review.sellerSku, (lowRatingsBySku.get(review.sellerSku) ?? 0) + 1);
   }
 
-  const totalDrop = Math.abs(deltaMinor);
-  const droppers = movements.filter((item) => item.deltaMinor < 0);
   const findings: DiagnosticFinding[] = [];
 
   for (const movement of droppers) {
-    const contribution = Math.abs(movement.deltaMinor) / totalDrop;
+    const contribution = Math.abs(movement.deltaMinor) / grossDrop;
     if (contribution < CONTRIBUTION_THRESHOLD) continue;
 
     const sku = movement.sellerSku;
@@ -225,16 +247,16 @@ export function diagnoseSalesDrop(input: DiagnosisInput): DiagnosisReport {
   const explained = findings
     .filter((finding) => finding.sellerSku !== undefined && finding.confidence >= 0.5)
     .reduce((sum, finding) => sum + Math.abs(finding.revenueImpact.amount), 0);
-  const breadth: DiagnosisReport['breadth'] = explained / totalDrop >= 0.5 ? 'concentrated' : 'spread';
+  const breadth: DiagnosisReport['breadth'] = explained / grossDrop >= 0.5 ? 'concentrated' : 'spread';
 
   if (breadth === 'spread') {
     findings.push({
       code: 'systemic',
-      revenueImpact: money(deltaMinor + explained, currency),
+      revenueImpact: money(-(grossDrop - explained), currency),
       confidence: 0.5,
       evidence: {
         skuCount: droppers.length,
-        explainedPercent: Number(((explained / totalDrop) * 100).toFixed(0)),
+        explainedPercent: Number(((explained / grossDrop) * 100).toFixed(0)),
       },
     });
   }
@@ -247,6 +269,7 @@ export function diagnoseSalesDrop(input: DiagnosisInput): DiagnosisReport {
 
   return {
     hasDrop: true,
+    trigger,
     revenueDelta: money(deltaMinor, currency),
     revenueDeltaPercent: deltaPercent,
     breadth,

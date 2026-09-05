@@ -35,6 +35,7 @@ export const ru = {
 
   'diagnosis.title': '🔍 Почему просело — {store}',
   'diagnosis.no_drop': 'Просадки нет: выручка {delta} ({percent}) к предыдущим суткам.',
+  'diagnosis.sku_trigger': 'Магазин в целом ровный, но по отдельным товарам просадка.',
   'diagnosis.summary': 'Выручка {delta} ({percent}) к предыдущим суткам.',
   'diagnosis.cause.stockout': '{sku}: товар закончился — {impact}',
   'diagnosis.cause.price_up': '{sku}: средняя цена продажи выросла на {pricePercent}% — {impact}',

@@ -8,6 +8,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # Живой Postgres: миграции и SQL репозиториев компилятор не проверяет,
+    # ошибка в имени колонки видна только при выполнении запроса.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: commerceos
+          POSTGRES_PASSWORD: commerceos
+          POSTGRES_DB: commerceos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U commerceos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://commerceos:commerceos@127.0.0.1:5432/commerceos
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +46,15 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Migrate
+        run: npm run db:migrate
+
+      # Ключ шифрования одноразовый: скрипт только пишет и читает свои же данные.
+      - name: Smoke test on a live database
+        run: |
+          npm run --silent gen:key >> "$GITHUB_ENV"
+          npm run smoke:db
 
       - name: Build
         run: npm run build

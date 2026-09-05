@@ -37,6 +37,7 @@ export const en: Record<keyof typeof ru, string> = {
 
   'diagnosis.title': '🔍 Why sales dropped — {store}',
   'diagnosis.no_drop': 'No drop: revenue {delta} ({percent}) versus the previous 24 hours.',
+  'diagnosis.sku_trigger': 'The store total looks flat, but individual products are down.',
   'diagnosis.summary': 'Revenue {delta} ({percent}) versus the previous 24 hours.',
   'diagnosis.cause.stockout': '{sku}: out of stock — {impact}',
   'diagnosis.cause.price_up': '{sku}: average selling price rose {pricePercent}% — {impact}',

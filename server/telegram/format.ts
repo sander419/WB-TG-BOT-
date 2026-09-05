@@ -164,8 +164,12 @@ export function formatDiagnosis(
     t(locale, 'diagnosis.title', { store: storeName }),
     '',
     t(locale, 'diagnosis.summary', { delta, percent }),
-    '',
   ];
+
+  // Разбор запустил отдельный товар — об этом надо сказать прямо, иначе
+  // ровная общая цифра рядом со списком причин выглядит противоречием.
+  if (report.trigger === 'sku') lines.push(t(locale, 'diagnosis.sku_trigger'));
+  lines.push('');
 
   for (const finding of report.findings) {
     const impact =

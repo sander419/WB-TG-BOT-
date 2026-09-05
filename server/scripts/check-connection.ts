@@ -55,7 +55,8 @@ async function main(): Promise<void> {
       .join('\n'),
   );
 
-  process.exit(result.ok ? 0 : 2);
+  // Не process.exit: он рвёт ещё живые таймеры fetch и Node ругается ассертом.
+  process.exitCode = result.ok ? 0 : 2;
 }
 
 main().catch((error: unknown) => {

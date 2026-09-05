@@ -156,6 +156,7 @@ test('диагноз без просадки не выдумывает прич�
   const text = formatDiagnosis(
     {
       hasDrop: false,
+      trigger: 'none',
       revenueDelta: money(50_000, 'RUB'),
       revenueDeltaPercent: 12,
       breadth: 'none',
@@ -173,6 +174,7 @@ test('диагноз перечисляет причины и то, что пр�
   const text = formatDiagnosis(
     {
       hasDrop: true,
+      trigger: 'store',
       revenueDelta: money(-400_000, 'RUB'),
       revenueDeltaPercent: -44.4,
       breadth: 'concentrated',

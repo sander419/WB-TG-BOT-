@@ -63,13 +63,24 @@ export class WildberriesClient {
     return response.data;
   }
 
-  /** Отдельно: /ping отвечает text/plain, JSON-разбор для него не обязателен. */
-  async ping(): Promise<boolean> {
+  /**
+   * Проба доступности и токена.
+   *
+   * Проверено запросом 05.09.2026: без валидного токена /ping отвечает 401,
+   * а не 200. Значит это не проверка живости, а проверка авторизации —
+   * и «не ответил» здесь означало бы неправду про недоступный хост.
+   */
+  async probe(): Promise<'ok' | 'unauthorized' | 'unreachable'> {
     try {
-      await this.call('ping', { retries: 0, timeoutMs: 10_000 });
-      return true;
-    } catch {
-      return false;
+      await this.call('ping', { retries: 0, timeoutMs: 15_000 });
+      return 'ok';
+    } catch (error) {
+      if (error instanceof ConnectorError) {
+        if (error.code === 'AUTH_ERROR') return 'unauthorized';
+        // 4xx с живого хоста — тоже связь есть, просто ответ не тот.
+        if (error.httpStatusUpstream !== undefined) return 'unauthorized';
+      }
+      return 'unreachable';
     }
   }
 }

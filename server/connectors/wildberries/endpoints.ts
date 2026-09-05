@@ -1,10 +1,14 @@
 /**
  * Карта API Wildberries: хосты, пути, лимиты.
  *
- * ⚠️ ВАЖНО. Значения ниже собраны по памяти о публичной документации WB и НЕ
- * проверены запросами. WB регулярно переносит методы между хостами и версиями.
- * Перед первым боевым вызовом каждый путь и лимит сверить с https://dev.wildberries.ru
- * и снять пометку VERIFY. Чек-лист сверки — docs/INTEGRATION-WILDBERRIES.md.
+ * ⚠️ ВАЖНО. Значения с `verified: false` собраны по памяти о публичной
+ * документации WB и НЕ подтверждены запросами. WB регулярно переносит методы
+ * между хостами и версиями. Перед первым боевым вызовом каждый такой путь
+ * и лимит сверить с https://dev.wildberries.ru и снять пометку.
+ * Чек-лист сверки — docs/INTEGRATION-WILDBERRIES.md.
+ *
+ * `verified: true` означает, что путь дёрнули по-настоящему и он ответил.
+ * Лимиты не подтверждены нигде: их видно только под нагрузкой с боевым токеном.
  *
  * Хосты вынесены отдельно потому, что WB считает лимиты на каждую группу API
  * независимо, и токен продавца выпускается под конкретный набор категорий.
@@ -35,13 +39,15 @@ export const WB_API_GROUPS: Record<WbApiGroup, WbApiGroupConfig> = {
     baseUrl: 'https://common-api.wildberries.ru',
     tokenScope: 'Любая категория',
     rateLimit: { capacity: 60, intervalMs: 60_000 },
-    verified: false,
+    // Хост подтверждён запросом 05.09.2026: отвечает 401 без токена. Лимит — нет.
+    verified: true,
   },
   content: {
     baseUrl: 'https://content-api.wildberries.ru',
     tokenScope: 'Контент',
     rateLimit: { capacity: 100, intervalMs: 60_000 },
-    verified: false,
+    // Хост подтверждён запросом 05.09.2026: отвечает 401 без токена. Лимит — нет.
+    verified: true,
   },
   prices: {
     baseUrl: 'https://discounts-prices-api.wildberries.ru',
@@ -96,7 +102,14 @@ export interface WbEndpoint {
  * как чтение отработает на боевом токене хотя бы сутки.
  */
 export const WB_ENDPOINTS = {
-  ping: { group: 'common', method: 'GET', path: '/ping', purpose: 'Проверка живости API и токена', verified: false },
+  ping: {
+    group: 'common',
+    method: 'GET',
+    path: '/ping',
+    // Подтверждено запросом 05.09.2026: путь существует, без токена отдаёт 401.
+    purpose: 'Проверка токена (без токена — 401, не 200)',
+    verified: true,
+  },
   sellerInfo: {
     group: 'common',
     method: 'GET',

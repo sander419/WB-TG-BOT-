@@ -101,9 +101,12 @@ export class WildberriesConnector implements MarketplaceConnector {
     const log = childLogger({ marketplace: this.id, storeId: ctx.storeId });
     const client = new WildberriesClient(ctx);
 
-    const alive = await client.ping();
-    if (!alive) {
-      return { ok: false, message: 'WB API не ответил на /ping — проверь сеть и доступность хоста.' };
+    const probe = await client.probe();
+    if (probe === 'unreachable') {
+      return { ok: false, message: 'WB API недоступен: не отвечает ни на один запрос. Проверь сеть.' };
+    }
+    if (probe === 'unauthorized') {
+      return { ok: false, message: 'Хост WB отвечает, но токен не принят. Проверь токен и его категории.' };
     }
 
     try {
