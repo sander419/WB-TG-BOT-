@@ -166,3 +166,56 @@ export async function fetchReviewStats(
     worstRating: row?.worst_rating ?? null,
   };
 }
+
+export interface ReviewRow {
+  externalId: string;
+  productExternalId: string;
+  sellerSku: string | null;
+  rating: number;
+  text: string;
+  answered: boolean;
+  createdAt: Date;
+}
+
+interface ReviewRawRow extends Record<string, unknown> {
+  external_id: string;
+  product_external_id: string;
+  seller_sku: string | null;
+  rating: number;
+  text: string;
+  answered: boolean;
+  created_at_external: Date;
+}
+
+/**
+ * Отзывы за период. Артикул продавца подтягивается из каталога: в таблице
+ * отзывов его нет, а и алерты, и диагностика оперируют артикулами.
+ */
+export async function fetchReviewsSince(scope: StoreScope, from: Date): Promise<ReviewRow[]> {
+  const result = await getDb().execute<ReviewRawRow>(sql`
+    select
+      r.external_id          as external_id,
+      p.external_id          as product_external_id,
+      p.seller_sku           as seller_sku,
+      r.rating               as rating,
+      r.text                 as text,
+      r.answered             as answered,
+      r.created_at_external  as created_at_external
+    from reviews r
+    left join products p on p.id = r.product_id
+    where r.organization_id = ${scope.organizationId}
+      and r.store_id = ${scope.storeId}
+      and r.created_at_external >= ${from}
+    order by r.created_at_external desc
+  `);
+
+  return result.rows.map((row) => ({
+    externalId: row.external_id,
+    productExternalId: row.product_external_id ?? '',
+    sellerSku: row.seller_sku,
+    rating: row.rating,
+    text: row.text,
+    answered: row.answered,
+    createdAt: new Date(row.created_at_external),
+  }));
+}

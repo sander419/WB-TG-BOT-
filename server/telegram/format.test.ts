@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { money } from '../core/money';
 import type { DailyDigest } from '../services/digest';
-import { formatAgo, formatDigest, formatPercent, formatStockReport } from './format';
+import {
+  formatAgo,
+  formatAlert,
+  formatDiagnosis,
+  formatDigest,
+  formatPercent,
+  formatStockReport,
+} from './format';
 
 const emptySummary = {
   revenue: money(0, 'RUB'),
@@ -115,4 +122,86 @@ test('отчёт по остаткам без данных не показыва
     'ru',
   );
   assert.match(text, /ни разу не проходила/);
+});
+
+test('алерт собирается из заголовка и тела', () => {
+  const text = formatAlert(
+    {
+      code: 'stockout',
+      severity: 'error',
+      dedupKey: 'stockout:BP-1',
+      sellerSku: 'BP-1',
+      params: { sku: 'BP-1', velocity: 3.2 },
+    },
+    'ru',
+  );
+
+  assert.match(text, /Товар закончился/);
+  assert.match(text, /BP-1/);
+  assert.match(text, /3\.2/);
+  assert.ok(!text.includes('{'), 'все плейсхолдеры заменены');
+});
+
+test('каждый алерт переведён на оба языка', () => {
+  const codes = ['stockout', 'stock_critical', 'revenue_drop', 'negative_review', 'sync_failed'] as const;
+  for (const code of codes) {
+    for (const locale of ['ru', 'en'] as const) {
+      const text = formatAlert({ code, severity: 'warning', dedupKey: code, params: {} }, locale);
+      assert.ok(!text.includes(`alert.${code}`), `нет строки для ${code} на ${locale}`);
+    }
+  }
+});
+
+test('диагноз без просадки не выдумывает причин', () => {
+  const text = formatDiagnosis(
+    {
+      hasDrop: false,
+      revenueDelta: money(50_000, 'RUB'),
+      revenueDeltaPercent: 12,
+      breadth: 'none',
+      findings: [],
+      unavailable: [],
+    },
+    'Магазин',
+    'ru',
+  );
+
+  assert.match(text, /Просадки нет/);
+});
+
+test('диагноз перечисляет причины и то, что проверить нечем', () => {
+  const text = formatDiagnosis(
+    {
+      hasDrop: true,
+      revenueDelta: money(-400_000, 'RUB'),
+      revenueDeltaPercent: -44.4,
+      breadth: 'concentrated',
+      findings: [
+        {
+          code: 'stockout',
+          sellerSku: 'BP-1',
+          revenueImpact: money(-400_000, 'RUB'),
+          confidence: 0.95,
+          evidence: { quantity: 0 },
+        },
+        {
+          code: 'demand',
+          sellerSku: 'BP-2',
+          revenueImpact: money(-50_000, 'RUB'),
+          confidence: 0.35,
+          evidence: { quantity: 12, daysOfCover: 6 },
+        },
+      ],
+      unavailable: ['search_positions', 'competitor_prices'],
+    },
+    'Магазин',
+    'ru',
+  );
+
+  assert.match(text, /BP-1: товар закончился/);
+  assert.match(text, /BP-2/);
+  assert.match(text, /уверенность 35%/, 'у слабой гипотезы уверенность видна');
+  assert.ok(!/товар закончился.*уверенность/.test(text), 'у очевидной причины проценты не нужны');
+  assert.match(text, /позиции в поиске/);
+  assert.ok(!text.includes('{'));
 });

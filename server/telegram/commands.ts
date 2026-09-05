@@ -11,12 +11,13 @@ import { logger } from '../core/logger';
 import { t, type Locale } from '../i18n';
 import { listStores } from '../db/repositories/stores';
 import { buildDailyDigest, buildStockReport } from '../services/digest';
+import { diagnoseStore } from '../services/diagnostics';
 import { requestSync } from '../services/stores';
-import { formatDigest, formatStockReport, formatStores } from './format';
+import { formatDiagnosis, formatDigest, formatStockReport, formatStores } from './format';
 import { linkByCode, loadSession, rememberLocale, storeScope, type BotSession, type StoreScope } from './session';
 
 /** Команды, которым ещё нечего показать: источника данных нет. */
-const PENDING_COMMANDS = ['problems', 'reviews'] as const;
+const PENDING_COMMANDS = ['reviews'] as const;
 
 async function sessionFor(ctx: Context): Promise<BotSession | undefined> {
   const from = ctx.from;
@@ -158,6 +159,18 @@ export function registerCommands(bot: Bot): void {
 
       const report = await buildStockReport(scope.organizationId, scope.activeStoreId);
       await ctx.reply(formatStockReport(report, session.locale));
+    }),
+  );
+
+  /** Разбор просадки: причины считает код, не модель. */
+  bot.command(
+    'problems',
+    guard(async (ctx, session) => {
+      const scope = await requireStore(ctx, session);
+      if (!scope) return;
+
+      const { storeName, report } = await diagnoseStore(scope.organizationId, scope.activeStoreId);
+      await ctx.reply(formatDiagnosis(report, storeName, session.locale));
     }),
   );
 

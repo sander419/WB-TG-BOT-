@@ -6,8 +6,10 @@
  * Ни одной строки текста здесь не написано напрямую — только ключи каталога.
  */
 import { formatMoney, type Money } from '../core/money';
-import { t, type Locale } from '../i18n';
+import { t, type Locale, type MessageKey } from '../i18n';
 import type { StockCoverage, SkuMovement } from '../analytics/metrics';
+import type { Alert } from '../analytics/alerts';
+import type { DiagnosisReport } from '../analytics/diagnostics';
 import type { DailyDigest, StockReport } from '../services/digest';
 
 /** Локаль форматирования чисел по локали интерфейса. */
@@ -133,6 +135,61 @@ export function formatStockReport(report: StockReport, locale: Locale): string {
   }
 
   lines.push(...report.items.map((item) => formatStockLine(item, locale)));
+  return lines.join('\n');
+}
+
+/** Алерт в сообщение: заголовок и тело — два ключа одного кода. */
+export function formatAlert(alert: Alert, locale: Locale): string {
+  const title = t(locale, `alert.${alert.code}.title` as MessageKey);
+  const body = t(locale, `alert.${alert.code}.body` as MessageKey, alert.params);
+  return `${title}\n${body}`;
+}
+
+export function formatDiagnosis(
+  report: DiagnosisReport,
+  storeName: string,
+  locale: Locale,
+): string {
+  const delta = formatMoneyFor(report.revenueDelta, locale);
+  const percent = formatPercent(report.revenueDeltaPercent, locale);
+
+  if (!report.hasDrop) {
+    return `${t(locale, 'diagnosis.title', { store: storeName })}\n\n${t(locale, 'diagnosis.no_drop', {
+      delta,
+      percent,
+    })}`;
+  }
+
+  const lines: string[] = [
+    t(locale, 'diagnosis.title', { store: storeName }),
+    '',
+    t(locale, 'diagnosis.summary', { delta, percent }),
+    '',
+  ];
+
+  for (const finding of report.findings) {
+    const impact =
+      finding.revenueImpact.amount === 0 ? '' : formatMoneyFor(finding.revenueImpact, locale);
+    const text = t(locale, `diagnosis.cause.${finding.code}` as MessageKey, {
+      sku: finding.sellerSku ?? '—',
+      impact,
+      ...finding.evidence,
+    });
+    // Уверенность показываем только там, где она не очевидна.
+    const confidence =
+      finding.confidence >= 0.9
+        ? ''
+        : ` · ${t(locale, 'diagnosis.confidence', { percent: Math.round(finding.confidence * 100) })}`;
+    lines.push(`• ${text}${confidence}`);
+  }
+
+  if (report.unavailable.length > 0) {
+    const list = report.unavailable
+      .map((source) => t(locale, `diagnosis.source.${source}` as MessageKey))
+      .join(', ');
+    lines.push('', t(locale, 'diagnosis.unavailable', { list }));
+  }
+
   return lines.join('\n');
 }
 

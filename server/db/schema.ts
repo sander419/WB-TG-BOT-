@@ -313,10 +313,19 @@ export const events = pgTable(
     type: text('type').notNull(),
     severity: eventSeverityEnum('severity').notNull().default('info'),
     title: text('title').notNull(),
+    /**
+     * Ключ подавления повторов для алертов: по нему проверяется, не отправляли ли
+     * мы это же самое час назад. Одна и та же проблема, приходящая каждые полчаса,
+     * заканчивается отключёнными уведомлениями и пропущенной настоящей бедой.
+     */
+    dedupKey: text('dedup_key'),
     payload: jsonb('payload'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().default(now),
   },
-  (table) => [index('events_org_time_idx').on(table.organizationId, table.createdAt)],
+  (table) => [
+    index('events_org_time_idx').on(table.organizationId, table.createdAt),
+    index('events_dedup_idx').on(table.storeId, table.dedupKey, table.createdAt),
+  ],
 );
 
 /**

@@ -28,15 +28,15 @@ test('плейсхолдеры совпадают между языками', ()
 });
 
 test('подстановка параметров работает', () => {
-  const message = t('ru', 'alert.stockout.body', { product: 'Рюкзак', days: 4, warehouse: 'Коледино' });
-  assert.match(message, /Рюкзак/);
+  const message = t('ru', 'alert.stock_critical.body', { sku: 'BP-1', quantity: 14, days: 4 });
+  assert.match(message, /BP-1/);
+  assert.match(message, /14 шт/);
   assert.match(message, /4 дн/);
-  assert.match(message, /Коледино/);
   assert.ok(!message.includes('{'), 'все плейсхолдеры должны быть заменены');
 });
 
 test('незаданный параметр остаётся видимым, а не превращается в undefined', () => {
-  const message = t('ru', 'alert.stockout.body', { product: 'Рюкзак' });
+  const message = t('ru', 'alert.stock_critical.body', { sku: 'BP-1' });
   assert.ok(message.includes('{days}'), 'пропуск параметра должен быть заметен');
   assert.ok(!message.includes('undefined'));
 });

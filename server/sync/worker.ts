@@ -25,6 +25,7 @@ import {
   SYNC_MODULES,
   enqueueSync,
 } from '../db/repositories/syncJobs';
+import { runAlertsForStore } from '../services/alerts';
 import { runSync } from './runners';
 
 const IDLE_DELAY_MS = 5_000;
@@ -59,6 +60,15 @@ export async function processNextJob(): Promise<boolean> {
 
     // Успешная синхронизация снимает статус ошибки, выставленный прошлым падением.
     if (store.status === 'error') await setStoreStatus(store.id, 'active');
+
+    // Алерты считаются на свежих данных. Их сбой не должен ронять синхронизацию:
+    // непришедшее уведомление хуже, чем незаписанные данные, но ненамного.
+    try {
+      await runAlertsForStore(store.organizationId, store.id);
+    } catch (error) {
+      log.error({ err: toAppError(error) }, 'Не удалось разослать алерты');
+    }
+
     return true;
   } catch (error) {
     const appError = toAppError(error);
