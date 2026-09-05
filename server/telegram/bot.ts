@@ -1,9 +1,9 @@
 /**
  * Telegram-бот на grammY.
  *
- * Состояние: каркас, который реально запускается. Команды разобраны, локаль
- * определяется, ошибки не роняют процесс. Данные пока не подключены — команды,
- * которым нужен маркетплейс, отвечают честной заглушкой вместо выдуманных цифр.
+ * Команды данных считают по реальным строкам из БД, когда магазин привязан.
+ * Без привязки или без БД бот честно говорит об этом, а не показывает
+ * выдуманные цифры. Локаль, организация и активный магазин — в session.ts.
  *
  * Режимы (TELEGRAM_MODE):
  *   disabled — бот не поднимается (по умолчанию, чтобы не дёргать API без нужды);
@@ -16,13 +16,7 @@
 import { Bot, GrammyError, HttpError } from 'grammy';
 import { env } from '../config/env';
 import { logger } from '../core/logger';
-import { resolveLocale, type Locale } from '../i18n';
 import { registerCommands } from './commands';
-import { getPreferences } from './state';
-
-export interface BotContextInfo {
-  locale: Locale;
-}
 
 let bot: Bot | null = null;
 
@@ -56,13 +50,6 @@ export function getBot(): Bot | null {
   return bot;
 }
 
-/** Локаль пользователя: сохранённая настройка → язык клиента Telegram → дефолт из env. */
-export function localeFor(telegramUserId: number | undefined, languageCode: string | undefined): Locale {
-  const saved = telegramUserId === undefined ? undefined : getPreferences(telegramUserId)?.locale;
-  if (saved) return saved;
-  return resolveLocale(languageCode, env.DEFAULT_LOCALE);
-}
-
 /**
  * Запуск бота. Для polling не блокирует: grammY сам крутит цикл.
  * Для webhook ничего не запускает — апдейты придут в express-роут.
@@ -82,6 +69,7 @@ export async function startTelegramBot(): Promise<void> {
     { command: 'stocks', description: 'Остатки' },
     { command: 'problems', description: 'Что просело и почему' },
     { command: 'reviews', description: 'Новые отзывы' },
+    { command: 'sync', description: 'Обновить данные' },
     { command: 'stores', description: 'Мои магазины' },
     { command: 'link', description: 'Привязать магазин' },
     { command: 'lang', description: 'Язык / Language' },

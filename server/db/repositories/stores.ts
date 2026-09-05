@@ -86,6 +86,12 @@ export async function getStoreById(storeId: string): Promise<StoreRow | undefine
   return row ? toStoreRow(row) : undefined;
 }
 
+/** Активные магазины всех организаций — для планировщика синхронизации. */
+export async function listActiveStores(): Promise<StoreRow[]> {
+  const rows = await getDb().select().from(stores).where(eq(stores.status, 'active'));
+  return rows.map(toStoreRow);
+}
+
 export async function setStoreStatus(storeId: string, status: StoreRow['status']): Promise<void> {
   await getDb().update(stores).set({ status }).where(eq(stores.id, storeId));
 }

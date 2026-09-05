@@ -11,11 +11,20 @@
  * Запускается в том же процессе, что и веб. Когда инстансов станет больше одного,
  * воркер выносится в отдельный процесс: очередь на SKIP LOCKED это уже позволяет.
  */
+import { env } from '../config/env';
 import { logger } from '../core/logger';
 import { toAppError } from '../core/errors';
 import { isDatabaseConfigured } from '../db/client';
-import { getStoreById, setStoreStatus } from '../db/repositories/stores';
-import { claimNextJob, completeJob, failJob, requeueStaleJobs } from '../db/repositories/syncJobs';
+import { getStoreById, listActiveStores, setStoreStatus } from '../db/repositories/stores';
+import {
+  claimNextJob,
+  completeJob,
+  failJob,
+  hasPendingJob,
+  requeueStaleJobs,
+  SYNC_MODULES,
+  enqueueSync,
+} from '../db/repositories/syncJobs';
 import { runSync } from './runners';
 
 const IDLE_DELAY_MS = 5_000;
@@ -64,6 +73,36 @@ export async function processNextJob(): Promise<boolean> {
   }
 }
 
+/**
+ * Планировщик: сам ставит синхронизацию активным магазинам.
+ *
+ * Проверка `hasPendingJob` обязательна — без неё при медленной площадке
+ * очередь растёт быстрее, чем разбирается, и воркер молотит устаревшие задачи.
+ * Магазины в статусе error пропускаются: у них сломан токен, чинить руками.
+ */
+export async function scheduleDueSyncs(): Promise<number> {
+  if (env.SYNC_INTERVAL_MINUTES === 0) return 0;
+
+  const stores = await listActiveStores();
+  const intervalMs = env.SYNC_INTERVAL_MINUTES * 60_000;
+  const now = Date.now();
+  let queued = 0;
+
+  for (const store of stores) {
+    const lastSync = store.lastSyncAt?.getTime() ?? 0;
+    if (now - lastSync < intervalMs) continue;
+
+    const pending = await Promise.all(SYNC_MODULES.map((module) => hasPendingJob(store.id, module)));
+    if (pending.some(Boolean)) continue;
+
+    const jobs = await enqueueSync(store.id);
+    queued += jobs.length;
+    logger.info({ storeId: store.id, jobs: jobs.length }, 'Плановая синхронизация поставлена в очередь');
+  }
+
+  return queued;
+}
+
 export async function startSyncWorker(): Promise<void> {
   if (running) return;
   if (!isDatabaseConfigured()) {
@@ -83,6 +122,7 @@ export async function startSyncWorker(): Promise<void> {
         lastStaleCheck = Date.now();
         const requeued = await requeueStaleJobs();
         if (requeued > 0) logger.warn({ requeued }, 'Зависшие задачи возвращены в очередь');
+        await scheduleDueSyncs();
       }
 
       const worked = await processNextJob();

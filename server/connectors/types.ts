@@ -128,6 +128,7 @@ export interface NormalizedOrderLine {
   externalId: string;
   sellerSku: string;
   quantity: number;
+  /** Цена за единицу. Выручка позиции = price × quantity. */
   price: Money;
   /** Комиссия площадки по позиции, если известна. */
   commission?: Money;

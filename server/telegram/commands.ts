@@ -1,75 +1,192 @@
 /**
  * Команды бота.
  *
- * Каждая команда, которой нужны данные маркетплейса, сейчас отвечает заглушкой
- * с пометкой. Это сознательно: показать выдуманные цифры продавцу — хуже,
- * чем сказать «ещё не подключено». Реализация — docs/ROADMAP.md, этап 3.
+ * Команды данных работают на настоящих цифрах из БД, когда магазин привязан.
+ * Если БД нет или магазин не привязан — честная подсказка, а не выдуманные числа.
+ * Команды, под которые ещё нет источника (позиции в поиске), так и говорят.
  */
-import { InlineKeyboard, type Bot } from 'grammy';
+import { InlineKeyboard, type Bot, type Context } from 'grammy';
+import { toAppError } from '../core/errors';
 import { logger } from '../core/logger';
 import { t, type Locale } from '../i18n';
-import { localeFor } from './bot';
-import { hasLinkedStore, setPreferences } from './state';
+import { listStores } from '../db/repositories/stores';
+import { buildDailyDigest, buildStockReport } from '../services/digest';
+import { requestSync } from '../services/stores';
+import { formatDigest, formatStockReport, formatStores } from './format';
+import { linkByCode, loadSession, rememberLocale, storeScope, type BotSession, type StoreScope } from './session';
 
-/** Команды, которые ждут коннектора. Ответ — единый честный текст. */
-const DATA_COMMANDS = ['digest', 'sales', 'stocks', 'problems', 'reviews', 'stores'] as const;
+/** Команды, которым ещё нечего показать: источника данных нет. */
+const PENDING_COMMANDS = ['problems', 'reviews'] as const;
+
+async function sessionFor(ctx: Context): Promise<BotSession | undefined> {
+  const from = ctx.from;
+  const chatId = ctx.chat?.id;
+  if (!from || chatId === undefined) return undefined;
+  return loadSession(from.id, chatId, from.language_code);
+}
+
+/**
+ * Общая обёртка: любая ошибка внутри команды превращается в понятный ответ.
+ * Без неё падение запроса к БД оставляет пользователя без ответа вообще.
+ */
+function guard(handler: (ctx: Context, session: BotSession) => Promise<void>) {
+  return async (ctx: Context): Promise<void> => {
+    const session = await sessionFor(ctx);
+    if (!session) return;
+
+    try {
+      await handler(ctx, session);
+    } catch (error) {
+      const appError = toAppError(error);
+      logger.error({ err: appError, telegramUserId: session.telegramUserId }, 'Команда бота упала');
+      await ctx.reply(t(session.locale, 'bot.error.generic'));
+    }
+  };
+}
+
+/** Проверяет, что магазин привязан; иначе отвечает подсказкой. */
+async function requireStore(ctx: Context, session: BotSession): Promise<StoreScope | undefined> {
+  const scope = storeScope(session);
+  if (scope) return scope;
+  await ctx.reply(t(session.locale, 'bot.error.no_store'));
+  return undefined;
+}
 
 export function registerCommands(bot: Bot): void {
-  bot.command('start', async (ctx) => {
-    const locale = localeFor(ctx.from?.id, ctx.from?.language_code);
-    if (ctx.from) setPreferences(ctx.from.id, { locale });
-    await ctx.reply(t(locale, 'bot.start.greeting'));
-  });
+  bot.command(
+    'start',
+    guard(async (ctx, session) => {
+      await rememberLocale(session, session.locale);
+      const scope = storeScope(session);
+      if (scope) {
+        const stores = await listStores(scope.organizationId);
+        const active = stores.find((store) => store.id === scope.activeStoreId);
+        await ctx.reply(
+          t(session.locale, 'bot.start.linked', {
+            name: ctx.from?.first_name ?? '',
+            store: active?.name ?? '—',
+          }),
+        );
+        return;
+      }
+      await ctx.reply(t(session.locale, 'bot.start.greeting'));
+    }),
+  );
 
-  bot.command('help', async (ctx) => {
-    const locale = localeFor(ctx.from?.id, ctx.from?.language_code);
-    await ctx.reply(`${t(locale, 'bot.help.title')}\n\n${t(locale, 'bot.help.body')}`);
-  });
+  bot.command(
+    'help',
+    guard(async (ctx, session) => {
+      await ctx.reply(`${t(session.locale, 'bot.help.title')}\n\n${t(session.locale, 'bot.help.body')}`);
+    }),
+  );
 
-  bot.command('lang', async (ctx) => {
-    const locale = localeFor(ctx.from?.id, ctx.from?.language_code);
-    const keyboard = new InlineKeyboard().text('Русский', 'lang:ru').text('English', 'lang:en');
-    await ctx.reply(t(locale, 'bot.lang.prompt'), { reply_markup: keyboard });
-  });
+  bot.command(
+    'lang',
+    guard(async (ctx, session) => {
+      const keyboard = new InlineKeyboard().text('Русский', 'lang:ru').text('English', 'lang:en');
+      await ctx.reply(t(session.locale, 'bot.lang.prompt'), { reply_markup: keyboard });
+    }),
+  );
 
   bot.callbackQuery(/^lang:(ru|en)$/, async (ctx) => {
     const chosen = ctx.match?.[1] as Locale | undefined;
-    if (!chosen || !ctx.from) {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    setPreferences(ctx.from.id, { locale: chosen });
+    const session = await sessionFor(ctx);
     await ctx.answerCallbackQuery();
+    if (!chosen || !session) return;
+
+    await rememberLocale(session, chosen);
     await ctx.reply(t(chosen, 'bot.lang.changed'));
   });
 
-  bot.command('link', async (ctx) => {
-    const locale = localeFor(ctx.from?.id, ctx.from?.language_code);
-    const code = ctx.match?.trim();
-    if (!code) {
-      await ctx.reply(t(locale, 'bot.link.prompt'));
-      return;
-    }
-    // TODO: проверить код в telegram_link_codes, привязать организацию и магазин.
-    logger.info({ telegramUserId: ctx.from?.id }, 'Попытка привязки магазина (заглушка)');
-    await ctx.reply(`${t(locale, 'bot.link.invalid')}\n\n${t(locale, 'bot.stub.notice')}`);
-  });
-
-  for (const command of DATA_COMMANDS) {
-    bot.command(command, async (ctx) => {
-      const locale = localeFor(ctx.from?.id, ctx.from?.language_code);
-      if (ctx.from && !hasLinkedStore(ctx.from.id)) {
-        await ctx.reply(t(locale, 'bot.error.no_store'));
+  bot.command(
+    'link',
+    guard(async (ctx, session) => {
+      // ctx.match для команды — строка аргументов; типы grammY допускают и массив.
+      const code = typeof ctx.match === 'string' ? ctx.match.trim() : '';
+      if (!code) {
+        await ctx.reply(t(session.locale, 'bot.link.prompt'));
         return;
       }
-      await ctx.reply(t(locale, 'bot.not_implemented', { command: `/${command}` }));
-    });
+
+      const outcome = await linkByCode(session, code);
+      if (!outcome.ok) {
+        await ctx.reply(t(session.locale, 'bot.link.invalid'));
+        return;
+      }
+
+      const stores = outcome.organizationId ? await listStores(outcome.organizationId) : [];
+      const linked = stores.find((store) => store.id === outcome.storeId);
+      await ctx.reply(t(session.locale, 'bot.link.success', { store: linked?.name ?? '—' }));
+    }),
+  );
+
+  bot.command(
+    'stores',
+    guard(async (ctx, session) => {
+      if (!session.organizationId) {
+        await ctx.reply(t(session.locale, 'bot.error.no_store'));
+        return;
+      }
+      const stores = await listStores(session.organizationId);
+      if (stores.length === 0) {
+        await ctx.reply(t(session.locale, 'bot.error.no_store'));
+        return;
+      }
+      await ctx.reply(formatStores(stores, session.locale));
+    }),
+  );
+
+  // Сводка и продажи считаются одинаково; /sales — привычный синоним.
+  for (const command of ['digest', 'sales'] as const) {
+    bot.command(
+      command,
+      guard(async (ctx, session) => {
+        const scope = await requireStore(ctx, session);
+        if (!scope) return;
+
+        const digest = await buildDailyDigest(scope.organizationId, scope.activeStoreId);
+        await ctx.reply(formatDigest(digest, session.locale));
+      }),
+    );
   }
 
-  // Свободный текст пойдёт в AI-оркестратор, когда он будет подключён к реальным данным.
+  bot.command(
+    'stocks',
+    guard(async (ctx, session) => {
+      const scope = await requireStore(ctx, session);
+      if (!scope) return;
+
+      const report = await buildStockReport(scope.organizationId, scope.activeStoreId);
+      await ctx.reply(formatStockReport(report, session.locale));
+    }),
+  );
+
+  /** Ручная синхронизация: ставит задачи в очередь, выполнит воркер. */
+  bot.command(
+    'sync',
+    guard(async (ctx, session) => {
+      const scope = await requireStore(ctx, session);
+      if (!scope) return;
+
+      const jobs = await requestSync(scope.organizationId, scope.activeStoreId);
+      await ctx.reply(t(session.locale, 'bot.sync.queued', { count: jobs.length }));
+    }),
+  );
+
+  for (const command of PENDING_COMMANDS) {
+    bot.command(
+      command,
+      guard(async (ctx, session) => {
+        await ctx.reply(t(session.locale, 'bot.not_implemented', { command: `/${command}` }));
+      }),
+    );
+  }
+
+  // Свободный текст пойдёт в AI-оркестратор, когда он будет считать по данным из БД.
   bot.on('message:text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
-    const locale = localeFor(ctx.from?.id, ctx.from?.language_code);
-    await ctx.reply(`${t(locale, 'bot.stub.notice')}\n\n${t(locale, 'bot.help.body')}`);
+    const session = await sessionFor(ctx);
+    if (!session) return;
+    await ctx.reply(`${t(session.locale, 'bot.stub.notice')}\n\n${t(session.locale, 'bot.help.body')}`);
   });
 }

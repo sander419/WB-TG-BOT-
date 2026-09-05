@@ -14,6 +14,7 @@ import { AppError, toAppError, ValidationError } from '../core/errors';
 import { logger } from '../core/logger';
 import { isDatabaseConfigured } from '../db/client';
 import { SYNC_MODULES, type SyncModule } from '../db/repositories/syncJobs';
+import { createLinkCode } from '../db/repositories/telegram';
 import { connectStore, requestSync, storesOverview, testStoreConnection } from '../services/stores';
 
 const marketplaceSchema = z.enum(['wildberries', 'ozon', 'shopify', '1688', 'taobao', 'jd']);
@@ -103,6 +104,23 @@ export function registerStoreRoutes(app: Express): void {
       assertUsable();
       const storeId = req.params.id as string;
       res.json({ check: await testStoreConnection(organizationId, storeId) });
+    }),
+  );
+
+  /**
+   * Код привязки Telegram. Одноразовый, живёт 15 минут.
+   * Продавец отправляет боту `/link КОД` — так бот узнаёт, чей это магазин,
+   * не спрашивая ни телефон, ни пароль.
+   */
+  app.post(
+    '/api/platform/stores/:id/telegram-code',
+    handle(async (req, res) => {
+      const { organizationId } = parse(organizationQuerySchema, req.body);
+      assertUsable();
+      const storeId = req.params.id as string;
+
+      const { code, expiresAt } = await createLinkCode({ organizationId, storeId });
+      res.status(201).json({ code, expiresAt, command: `/link ${code}` });
     }),
   );
 

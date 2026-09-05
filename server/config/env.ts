@@ -64,6 +64,10 @@ const schema = z.object({
   USE_MOCK_DATA: boolean(true),
   /** Разрешить коннекторам писать в маркетплейс (цены, остатки). По умолчанию read-only. */
   ALLOW_MARKETPLACE_WRITES: boolean(false),
+
+  // --- Синхронизация -------------------------------------------------------
+  /** Как часто воркер сам ставит синхронизацию активным магазинам. 0 — только вручную. */
+  SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(30),
 });
 
 export type Env = z.infer<typeof schema>;
