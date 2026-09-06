@@ -66,7 +66,11 @@ export function registerStoreRoutes(app: Express): void {
 
       const result = await connectStore({ ...input, organizationId });
 
-      res.status(result.check.ok ? 201 : 400).json({
+      // 201 в обоих случаях: магазин создан, это и есть результат запроса.
+      // Отклонённый токен — не ошибка обращения к нам, а факт про площадку,
+      // и он лежит в check. При 400 клиент видел бы «HTTP 400» вместо
+      // объяснения, почему токен не подошёл.
+      res.status(201).json({
         store: result.store,
         check: result.check,
         queuedJobs: result.queuedJobs.length,

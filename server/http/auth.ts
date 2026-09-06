@@ -17,6 +17,7 @@ import {
   logout,
   register,
 } from '../services/auth';
+import { SETUP_PAGE } from './setup-page';
 import {
   clearSessionCookie,
   handle,
@@ -62,6 +63,18 @@ function assertDatabase(): void {
 export function registerAuthRoutes(app: Express): void {
   // Вход и регистрация — самые лакомые цели перебора, лимит жёстче общего.
   const authLimit = rateLimitByIp(20, 60_000);
+
+  /**
+   * Страница первичной настройки. Регистрируется здесь, а не среди статики:
+   * она должна работать, даже когда фронтенд не собран.
+   */
+  app.get('/setup', (_req, res) => {
+    res
+      .type('html')
+      // Страница ничего не тянет извне: ни шрифтов, ни скриптов с CDN.
+      .setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'");
+    res.send(SETUP_PAGE);
+  });
 
   /** Нужна ли первичная настройка: ни одного пользователя ещё нет. */
   app.get(
