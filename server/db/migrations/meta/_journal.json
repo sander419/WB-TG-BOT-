@@ -15,6 +15,13 @@
       "when": 1788616058570,
       "tag": "0001_alerts_dedup",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788702567785,
+      "tag": "0002_auth",
+      "breakpoints": true
     }
   ]
 }

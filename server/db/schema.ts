@@ -63,12 +63,45 @@ export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /** Хранится в нижнем регистре: почта регистронезависима, а уникальный индекс — нет. */
     email: text('email').notNull(),
     name: text('name'),
+    /** scrypt$N$r$p$salt$hash, см. server/core/password.ts. */
+    passwordHash: text('password_hash'),
     locale: text('locale').notNull().default('ru'),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().default(now),
   },
   (table) => [uniqueIndex('users_email_uniq').on(table.email)],
+);
+
+/**
+ * Сессии. Не JWT: сессию в таблице можно отозвать — при смене пароля или
+ * увольнении сотрудника. Отозвать выданный JWT без такой же таблицы нельзя.
+ *
+ * Хранится хеш токена, а не сам токен: дамп базы не должен давать возможность
+ * войти под чужой сессией.
+ */
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().default(now),
+    /** Для страницы «активные сессии» и разбора инцидентов. */
+    userAgent: text('user_agent'),
+    ip: text('ip'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().default(now),
+  },
+  (table) => [
+    uniqueIndex('sessions_token_uniq').on(table.tokenHash),
+    index('sessions_user_idx').on(table.userId),
+    index('sessions_expiry_idx').on(table.expiresAt),
+  ],
 );
 
 export const memberships = pgTable(
@@ -398,6 +431,7 @@ export const telegramLinkCodes = pgTable(
 export const schema = {
   organizations,
   users,
+  sessions,
   memberships,
   stores,
   storeCredentials,

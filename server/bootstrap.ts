@@ -6,18 +6,24 @@
  * если что-то пойдёт не так.
  */
 import type { Express } from 'express';
-import { env, subsystemStatuses } from './config/env';
+import { env, isProduction, subsystemStatuses } from './config/env';
 import { logger } from './core/logger';
 import { connectorsSummary } from './connectors/registry';
 import { unverifiedEndpoints } from './connectors/wildberries/endpoints';
 import { closeDatabase } from './db/client';
+import { registerAuthRoutes } from './http/auth';
 import { registerPlatformRoutes } from './http/platform';
 import { registerStoreRoutes } from './http/stores';
 import { startSyncWorker, stopSyncWorker } from './sync/worker';
 import { startTelegramBot, stopTelegramBot } from './telegram/bot';
 
 export function registerPlatform(app: Express): void {
+  // За nginx req.ip иначе равен адресу прокси, и ограничение частоты
+  // считается на один ключ для всех — то есть не работает.
+  if (isProduction) app.set('trust proxy', 1);
+
   registerPlatformRoutes(app);
+  registerAuthRoutes(app);
   registerStoreRoutes(app);
 }
 

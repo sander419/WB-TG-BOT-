@@ -1,26 +1,28 @@
 /**
  * Роуты управления магазинами.
  *
- * ⚠️ Аутентификации в проекте пока нет (docs/ROADMAP.md, этап 7). Эти эндпоинты
- * принимают organizationId из запроса и позволяют сохранить токен маркетплейса —
- * выставлять их в интернет нельзя. Поэтому в production они выключены целиком,
- * пока не появится вход по учётной записи: лучше сломанная кнопка, чем открытый
- * доступ к чужим магазинам.
+ * Организация берётся из сессии, а не из тела запроса. Раньше было наоборот,
+ * и поэтому роуты приходилось выключать при NODE_ENV=production: подставив
+ * чужой organizationId, можно было прочитать чужой магазин. Теперь подделать
+ * нечего — идентификатор приходит из membership по токену сессии.
+ *
+ * Права: смотреть может любой участник, менять — admin и выше, подключать
+ * магазин с токеном площадки — тоже admin: этот токен даёт полный доступ
+ * к чужому магазину.
  */
-import type { Express, NextFunction, Request, Response } from 'express';
+import type { Express } from 'express';
 import { z } from 'zod';
-import { isProduction } from '../config/env';
-import { AppError, toAppError, ValidationError } from '../core/errors';
-import { logger } from '../core/logger';
+import { AppError, ValidationError } from '../core/errors';
 import { isDatabaseConfigured } from '../db/client';
 import { SYNC_MODULES, type SyncModule } from '../db/repositories/syncJobs';
 import { createLinkCode } from '../db/repositories/telegram';
+import { getStore } from '../db/repositories/stores';
 import { connectStore, requestSync, storesOverview, testStoreConnection } from '../services/stores';
+import { handle, requireAuth, requireJson, requireRole, tenantOf } from './middleware';
 
 const marketplaceSchema = z.enum(['wildberries', 'ozon', 'shopify', '1688', 'taobao', 'jd']);
 
 const connectStoreSchema = z.object({
-  organizationId: z.guid(),
   marketplace: marketplaceSchema,
   name: z.string().min(1).max(200),
   apiKey: z.string().min(10),
@@ -30,37 +32,8 @@ const connectStoreSchema = z.object({
 });
 
 const syncSchema = z.object({
-  organizationId: z.guid(),
   modules: z.array(z.enum(['products', 'stocks', 'orders', 'reviews'])).optional(),
 });
-
-const organizationQuerySchema = z.object({ organizationId: z.guid() });
-
-/** Общая обёртка: приводит любую ошибку к нашему формату и не отдаёт stack наружу. */
-function handle(fn: (req: Request, res: Response) => Promise<void>) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    fn(req, res).catch((error: unknown) => {
-      const appError = toAppError(error);
-
-      // Отказ по правилам — не сбой. Стек в лог не тащим: иначе ожидаемое
-      // «в проде выключено» выглядит как авария и топит настоящие ошибки.
-      if (appError.httpStatus < 500) {
-        logger.warn(
-          { code: appError.code, path: req.path, message: appError.message },
-          'Запрос отклонён',
-        );
-      } else {
-        logger.error({ err: appError, path: req.path }, 'Ошибка в роуте магазинов');
-      }
-
-      if (res.headersSent) {
-        next(error);
-        return;
-      }
-      res.status(appError.httpStatus).json(appError.toPublicJson());
-    });
-  };
-}
 
 function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   const result = schema.safeParse(data);
@@ -69,26 +42,29 @@ function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   throw new ValidationError(`Некорректный запрос. ${details}`);
 }
 
-function assertUsable(): void {
-  if (isProduction) {
-    throw new AppError(
-      'Управление магазинами выключено в production: не реализована аутентификация (docs/ROADMAP.md, этап 7).',
-      { code: 'PERMISSION_DENIED' },
-    );
-  }
+function assertDatabase(): void {
   if (!isDatabaseConfigured()) {
     throw new AppError('Не задан DATABASE_URL — хранить магазины негде.', { code: 'CONFIG_ERROR' });
   }
 }
 
 export function registerStoreRoutes(app: Express): void {
-  /** Подключить магазин: сохранить токен, проверить его, поставить первичную синхронизацию. */
+  /**
+   * Подключить магазин: сохранить токен, проверить его, поставить первичную
+   * синхронизацию. Требует admin: сохраняемый токен даёт полный доступ
+   * к магазину на площадке.
+   */
   app.post(
     '/api/platform/stores',
+    requireAuth,
+    requireRole('admin'),
+    requireJson,
     handle(async (req, res) => {
+      assertDatabase();
+      const { organizationId } = tenantOf(req);
       const input = parse(connectStoreSchema, req.body);
-      assertUsable();
-      const result = await connectStore(input);
+
+      const result = await connectStore({ ...input, organizationId });
 
       res.status(result.check.ok ? 201 : 400).json({
         store: result.store,
@@ -100,9 +76,10 @@ export function registerStoreRoutes(app: Express): void {
 
   app.get(
     '/api/platform/stores',
+    requireAuth,
     handle(async (req, res) => {
-      const { organizationId } = parse(organizationQuerySchema, req.query);
-      assertUsable();
+      assertDatabase();
+      const { organizationId } = tenantOf(req);
       res.json({ stores: await storesOverview(organizationId) });
     }),
   );
@@ -110,9 +87,11 @@ export function registerStoreRoutes(app: Express): void {
   /** Перепроверить токен, ничего не меняя на площадке. */
   app.post(
     '/api/platform/stores/:id/test',
+    requireAuth,
+    requireRole('operator'),
     handle(async (req, res) => {
-      const { organizationId } = parse(organizationQuerySchema, req.body);
-      assertUsable();
+      assertDatabase();
+      const { organizationId } = tenantOf(req);
       const storeId = req.params.id as string;
       res.json({ check: await testStoreConnection(organizationId, storeId) });
     }),
@@ -125,12 +104,23 @@ export function registerStoreRoutes(app: Express): void {
    */
   app.post(
     '/api/platform/stores/:id/telegram-code',
+    requireAuth,
+    requireRole('operator'),
     handle(async (req, res) => {
-      const { organizationId } = parse(organizationQuerySchema, req.body);
-      assertUsable();
+      assertDatabase();
+      const { organizationId, auth } = tenantOf(req);
       const storeId = req.params.id as string;
 
-      const { code, expiresAt } = await createLinkCode({ organizationId, storeId });
+      // Проверяем принадлежность магазина: без этого код привязки можно было
+      // выписать на чужой магазин, подставив его идентификатор в путь.
+      const store = await getStore(organizationId, storeId);
+      if (!store) throw new AppError('Магазин не найден', { code: 'NOT_FOUND' });
+
+      const { code, expiresAt } = await createLinkCode({
+        organizationId,
+        storeId,
+        createdByUserId: auth.userId,
+      });
       res.status(201).json({ code, expiresAt, command: `/link ${code}` });
     }),
   );
@@ -138,12 +128,16 @@ export function registerStoreRoutes(app: Express): void {
   /** Поставить синхронизацию в очередь. Выполнит воркер, не этот запрос. */
   app.post(
     '/api/platform/stores/:id/sync',
+    requireAuth,
+    requireRole('operator'),
+    requireJson,
     handle(async (req, res) => {
+      assertDatabase();
+      const { organizationId } = tenantOf(req);
       const body = parse(syncSchema, req.body);
-      assertUsable();
       const storeId = req.params.id as string;
       const modules: SyncModule[] = body.modules ?? SYNC_MODULES;
-      const jobs = await requestSync(body.organizationId, storeId, modules);
+      const jobs = await requestSync(organizationId, storeId, modules);
 
       res.status(202).json({ queued: jobs.length, modules });
     }),
