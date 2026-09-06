@@ -44,17 +44,21 @@ jobs:
       - name: Typecheck
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      # Ключ шифрования одноразовый: он нужен и тестам, и smoke-прогону,
+      # а расшифровывать в CI нечего — данные тут же и создаются.
+      - name: Generate encryption key
+        run: npm run --silent gen:key >> "$GITHUB_ENV"
 
+      # Миграции до тестов: интеграционные тесты работают с живой схемой,
+      # без неё они молча пропустятся и CI станет зелёным ни о чём.
       - name: Migrate
         run: npm run db:migrate
 
-      # Ключ шифрования одноразовый: скрипт только пишет и читает свои же данные.
+      - name: Test
+        run: npm test
+
       - name: Smoke test on a live database
-        run: |
-          npm run --silent gen:key >> "$GITHUB_ENV"
-          npm run smoke:db
+        run: npm run smoke:db
 
       - name: Build
         run: npm run build
