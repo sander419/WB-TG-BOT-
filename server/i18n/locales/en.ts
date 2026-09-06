@@ -50,6 +50,18 @@ export const en: Record<keyof typeof ru, string> = {
   'diagnosis.source.search_positions': 'search rankings',
   'diagnosis.source.competitor_prices': 'competitor prices',
 
+  'reviews.title': '💬 Unanswered reviews — {store}',
+  'reviews.none': 'No unanswered reviews.',
+  'reviews.summary': 'Unanswered: {unanswered} of {total}. Average rating over {days}d: {rating}',
+  'reviews.summary_no_rating': 'Unanswered: {unanswered} of {total}. No reviews in the last {days}d.',
+  'reviews.negative_warning': 'Rated 1-2: {count} — answer these first.',
+  'reviews.item_header': '{rating}/5 · {product} · {date}',
+  'reviews.unknown_product': 'not in catalogue',
+  'reviews.no_text': '(no text)',
+  'reviews.draft': 'Draft reply: {draft}',
+  'reviews.more': '{count} more — ask and I will show them.',
+  'reviews.cannot_answer': 'Sending replies to the marketplace is not implemented yet: a draft can be prepared, but not sent.',
+
   'digest.title': '📊 24h digest — {store}',
   'digest.never_synced': 'No sync has completed yet — no numbers to show.',
   'digest.stale': '⚠️ Data last updated {ago} ago, may be incomplete.',

@@ -2,11 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { money } from '../core/money';
 import type { DailyDigest } from '../services/digest';
+import type { ReviewFeed } from '../services/reviews';
 import {
   formatAgo,
   formatAlert,
   formatDiagnosis,
   formatDigest,
+  formatReviewFeed,
   formatPercent,
   formatStockReport,
 } from './format';
@@ -206,4 +208,114 @@ test('диагноз перечисляет причины и то, что пр�
   assert.ok(!/товар закончился.*уверенность/.test(text), 'у очевидной причины проценты не нужны');
   assert.match(text, /позиции в поиске/);
   assert.ok(!text.includes('{'));
+});
+
+// --- Лента отзывов ----------------------------------------------------------
+
+function feed(patch: Partial<ReviewFeed> = {}): ReviewFeed {
+  return {
+    storeName: 'Тестовый магазин',
+    timezone: 'Europe/Moscow',
+    summaryDays: 7,
+    summary: { total: 12, unanswered: 3, averageRating: 4.25, negativeUnanswered: 1 },
+    items: [
+      {
+        externalId: 'fb-1',
+        rating: 1,
+        text: '  Пришёл\n\nсломанным, молния не работает  ',
+        authorName: 'Иван',
+        answered: false,
+        draftReply: null,
+        createdAt: new Date('2026-09-06T09:20:00Z'),
+        productTitle: 'Рюкзак городской',
+        sellerSku: 'BP-1',
+      },
+    ],
+    hidden: 2,
+    neverSynced: false,
+    ...patch,
+  };
+}
+
+test('лента отзывов показывает оценку, товар и текст', () => {
+  const text = formatReviewFeed(feed(), 'ru');
+
+  assert.match(text, /1\/5/);
+  assert.match(text, /Рюкзак городской/);
+  assert.match(text, /Пришёл сломанным/, 'переносы строк схлопнуты');
+  assert.match(text, /Без ответа: 3 из 12/);
+  assert.match(text, /4\.3|4,3|4\.2|4,2/, 'средняя оценка выведена');
+  assert.ok(!text.includes('{'), 'все плейсхолдеры заменены');
+});
+
+test('дата отзыва в таймзоне магазина', () => {
+  // 09:20 UTC — это 12:20 в Москве.
+  const text = formatReviewFeed(feed(), 'ru');
+  assert.match(text, /12:20/);
+});
+
+test('негатив без ответа выделяется отдельной строкой', () => {
+  const text = formatReviewFeed(feed(), 'ru');
+  assert.match(text, /оценкой 1–2: 1/);
+});
+
+test('про невозможность отправки ответа сказано прямо', () => {
+  // Молчание тут читалось бы как «сейчас отправлю».
+  const text = formatReviewFeed(feed(), 'ru');
+  assert.match(text, /отправить — нет/);
+});
+
+test('скрытые отзывы посчитаны', () => {
+  assert.match(formatReviewFeed(feed(), 'ru'), /Ещё 2/);
+  assert.ok(!formatReviewFeed(feed({ hidden: 0 }), 'ru').includes('Ещё'));
+});
+
+test('пустая лента при отвеченных отзывах не притворяется бедой', () => {
+  const text = formatReviewFeed(
+    feed({ items: [], hidden: 0, summary: { total: 12, unanswered: 0, averageRating: 4.8, negativeUnanswered: 0 } }),
+    'ru',
+  );
+  assert.match(text, /Неотвеченных отзывов нет/);
+  assert.ok(!text.includes('отправить — нет'), 'предупреждение об отправке лишнее, когда отвечать нечего');
+});
+
+test('без единого отзыва честно говорим про синхронизацию', () => {
+  const text = formatReviewFeed(feed({ neverSynced: true, items: [] }), 'ru');
+  assert.match(text, /ни разу не проходила/);
+});
+
+test('длинный отзыв обрезается', () => {
+  const text = formatReviewFeed(
+    feed({ items: [{ ...feed().items[0]!, text: 'а'.repeat(600) }] }),
+    'ru',
+  );
+  assert.ok(text.includes('…'));
+  assert.ok(text.length < 1200);
+});
+
+test('отзыв без текста не даёт пустую строку', () => {
+  const text = formatReviewFeed(feed({ items: [{ ...feed().items[0]!, text: '   ' }] }), 'ru');
+  assert.match(text, /без текста/);
+});
+
+test('товар вне каталога подписан, а не пропущен', () => {
+  const text = formatReviewFeed(
+    feed({ items: [{ ...feed().items[0]!, productTitle: null, sellerSku: null }] }),
+    'ru',
+  );
+  assert.match(text, /товар не в каталоге/);
+});
+
+test('черновик ответа виден в ленте', () => {
+  const text = formatReviewFeed(
+    feed({ items: [{ ...feed().items[0]!, draftReply: 'Здравствуйте! Заменим.' }] }),
+    'ru',
+  );
+  assert.match(text, /Черновик ответа: Здравствуйте! Заменим\./);
+});
+
+test('английская лента без русских строк', () => {
+  const text = formatReviewFeed(feed({ storeName: 'Store', items: [] , hidden: 0}), 'en');
+  assert.match(text, /Unanswered reviews/);
+  assert.ok(!/[А-Яа-я]/.test(text));
 });

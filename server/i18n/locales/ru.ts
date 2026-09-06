@@ -48,6 +48,18 @@ export const ru = {
   'diagnosis.source.search_positions': 'позиции в поиске',
   'diagnosis.source.competitor_prices': 'цены конкурентов',
 
+  'reviews.title': '💬 Отзывы без ответа — {store}',
+  'reviews.none': 'Неотвеченных отзывов нет.',
+  'reviews.summary': 'Без ответа: {unanswered} из {total}. Средняя оценка за {days} дн.: {rating}',
+  'reviews.summary_no_rating': 'Без ответа: {unanswered} из {total}. За {days} дн. отзывов не было.',
+  'reviews.negative_warning': 'Из них с оценкой 1–2: {count} — на такие отвечают первыми.',
+  'reviews.item_header': '{rating}/5 · {product} · {date}',
+  'reviews.unknown_product': 'товар не в каталоге',
+  'reviews.no_text': '(без текста)',
+  'reviews.draft': 'Черновик ответа: {draft}',
+  'reviews.more': 'Ещё {count} — покажу, если попросишь больше.',
+  'reviews.cannot_answer': 'Отправка ответов на площадку пока не реализована: черновик можно подготовить, отправить — нет.',
+
   'digest.title': '📊 Сводка за сутки — {store}',
   'digest.never_synced': 'Синхронизация ещё ни разу не проходила — цифр пока нет.',
   'digest.stale': '⚠️ Данные обновлялись {ago} назад, могут быть неполными.',

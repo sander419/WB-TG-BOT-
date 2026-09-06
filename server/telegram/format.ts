@@ -11,6 +11,7 @@ import type { StockCoverage, SkuMovement } from '../analytics/metrics';
 import type { Alert } from '../analytics/alerts';
 import type { DiagnosisReport } from '../analytics/diagnostics';
 import type { DailyDigest, StockReport } from '../services/digest';
+import type { ReviewFeed } from '../services/reviews';
 
 /** Локаль форматирования чисел по локали интерфейса. */
 const numberLocale: Record<Locale, string> = { ru: 'ru-RU', en: 'en-US' };
@@ -193,6 +194,89 @@ export function formatDiagnosis(
       .join(', ');
     lines.push('', t(locale, 'diagnosis.unavailable', { list }));
   }
+
+  return lines.join('\n');
+}
+
+/** Дата в таймзоне магазина: «6 сент., 14:20». */
+function formatDateTime(date: Date, locale: Locale, timeZone: string): string {
+  return new Intl.DateTimeFormat(numberLocale[locale], {
+    timeZone,
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+const REVIEW_EXCERPT_LENGTH = 300;
+
+export function formatReviewFeed(feed: ReviewFeed, locale: Locale): string {
+  const lines: string[] = [t(locale, 'reviews.title', { store: feed.storeName })];
+
+  if (feed.neverSynced) {
+    lines.push('', t(locale, 'digest.never_synced'));
+    return lines.join('\n');
+  }
+
+  lines.push(
+    '',
+    feed.summary.averageRating === null
+      ? t(locale, 'reviews.summary_no_rating', {
+          unanswered: feed.summary.unanswered,
+          total: feed.summary.total,
+          days: feed.summaryDays,
+        })
+      : t(locale, 'reviews.summary', {
+          unanswered: feed.summary.unanswered,
+          total: feed.summary.total,
+          days: feed.summaryDays,
+          rating: feed.summary.averageRating.toFixed(1),
+        }),
+  );
+
+  if (feed.summary.negativeUnanswered > 0) {
+    lines.push(t(locale, 'reviews.negative_warning', { count: feed.summary.negativeUnanswered }));
+  }
+
+  if (feed.items.length === 0) {
+    lines.push('', t(locale, 'reviews.none'));
+    return lines.join('\n');
+  }
+
+  for (const item of feed.items) {
+    const product =
+      item.productTitle ?? item.sellerSku ?? t(locale, 'reviews.unknown_product');
+    const text = item.text.replace(/\s+/g, ' ').trim();
+    const excerpt =
+      text.length === 0
+        ? t(locale, 'reviews.no_text')
+        : text.length <= REVIEW_EXCERPT_LENGTH
+          ? text
+          : `${text.slice(0, REVIEW_EXCERPT_LENGTH - 1)}…`;
+
+    lines.push(
+      '',
+      t(locale, 'reviews.item_header', {
+        rating: item.rating,
+        product,
+        date: formatDateTime(item.createdAt, locale, feed.timezone),
+      }),
+      excerpt,
+    );
+
+    if (item.draftReply) {
+      lines.push(t(locale, 'reviews.draft', { draft: item.draftReply }));
+    }
+  }
+
+  if (feed.hidden > 0) {
+    lines.push('', t(locale, 'reviews.more', { count: feed.hidden }));
+  }
+
+  // Пока коннектор не умеет писать, честно предупреждаем: подготовить ответ
+  // можно, отправить — нет. Молчание тут выглядело бы как «сейчас отправлю».
+  lines.push('', t(locale, 'reviews.cannot_answer'));
 
   return lines.join('\n');
 }

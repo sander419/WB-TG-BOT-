@@ -12,12 +12,16 @@ import { t, type Locale } from '../i18n';
 import { listStores } from '../db/repositories/stores';
 import { buildDailyDigest, buildStockReport } from '../services/digest';
 import { diagnoseStore } from '../services/diagnostics';
+import { buildReviewFeed } from '../services/reviews';
 import { requestSync } from '../services/stores';
-import { formatDiagnosis, formatDigest, formatStockReport, formatStores } from './format';
+import {
+  formatDiagnosis,
+  formatDigest,
+  formatReviewFeed,
+  formatStockReport,
+  formatStores,
+} from './format';
 import { linkByCode, loadSession, rememberLocale, storeScope, type BotSession, type StoreScope } from './session';
-
-/** Команды, которым ещё нечего показать: источника данных нет. */
-const PENDING_COMMANDS = ['reviews'] as const;
 
 async function sessionFor(ctx: Context): Promise<BotSession | undefined> {
   const from = ctx.from;
@@ -174,6 +178,18 @@ export function registerCommands(bot: Bot): void {
     }),
   );
 
+  /** Отзывы без ответа, худшие сверху. */
+  bot.command(
+    'reviews',
+    guard(async (ctx, session) => {
+      const scope = await requireStore(ctx, session);
+      if (!scope) return;
+
+      const feed = await buildReviewFeed(scope.organizationId, scope.activeStoreId);
+      await ctx.reply(formatReviewFeed(feed, session.locale));
+    }),
+  );
+
   /** Ручная синхронизация: ставит задачи в очередь, выполнит воркер. */
   bot.command(
     'sync',
@@ -185,15 +201,6 @@ export function registerCommands(bot: Bot): void {
       await ctx.reply(t(session.locale, 'bot.sync.queued', { count: jobs.length }));
     }),
   );
-
-  for (const command of PENDING_COMMANDS) {
-    bot.command(
-      command,
-      guard(async (ctx, session) => {
-        await ctx.reply(t(session.locale, 'bot.not_implemented', { command: `/${command}` }));
-      }),
-    );
-  }
 
   // Свободный текст пойдёт в AI-оркестратор, когда он будет считать по данным из БД.
   bot.on('message:text', async (ctx) => {

@@ -31,7 +31,14 @@ import { encryptSecret } from '../core/crypto';
 import { buildDailyDigest, buildStockReport } from '../services/digest';
 import { diagnoseStore } from '../services/diagnostics';
 import { evaluateStoreAlerts } from '../services/alerts';
-import { formatDiagnosis, formatDigest, formatStockReport, formatAlert } from '../telegram/format';
+import { buildReviewFeed } from '../services/reviews';
+import {
+  formatAlert,
+  formatDiagnosis,
+  formatDigest,
+  formatReviewFeed,
+  formatStockReport,
+} from '../telegram/format';
 import { fetchFreshness, fetchLatestStocks, fetchOrderFacts } from '../db/repositories/analytics';
 import { recentDedupKeys, recordEvent } from '../db/repositories/events';
 
@@ -192,6 +199,9 @@ async function main(): Promise<void> {
     out('\n--- Диагностика ---');
     const { storeName, report } = await diagnoseStore(organizationId, storeId);
     out(formatDiagnosis(report, storeName, 'ru'));
+
+    out('\n--- Отзывы ---');
+    out(formatReviewFeed(await buildReviewFeed(organizationId, storeId), 'ru'));
 
     out('\n--- Алерты ---');
     const alerts = await evaluateStoreAlerts(organizationId, storeId);
