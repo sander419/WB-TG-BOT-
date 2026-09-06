@@ -1,0 +1,24 @@
+# Концы строк.
+#
+# Разработка идёт на Windows, где git по умолчанию выдаёт CRLF при выгрузке.
+# Для shell-скриптов это фатально: строка `#!/bin/sh\r` в Linux-контейнере
+# даёт «no such file or directory», причём про интерпретатор, а не про скрипт —
+# ошибка, которую ищут часами.
+
+* text=auto
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker/** text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+
+# Бинарное — не трогать.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
