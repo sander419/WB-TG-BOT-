@@ -175,6 +175,8 @@ npm run rotate:key -- --apply      # перешифровать
 
 ## Документация
 
+- [AGENTS.md](AGENTS.md) — **вводная для того, кто подключается к работе:**
+  что происходит, правила проекта, чего не делать
 - [Архитектура](docs/ARCHITECTURE.md) — слои, решения и почему именно так
 - [Подключение Wildberries](docs/INTEGRATION-WILDBERRIES.md) — токен, эндпоинты, грабли
 - [Подключение Telegram](docs/INTEGRATION-TELEGRAM.md) — бот, вебхук, алерты
