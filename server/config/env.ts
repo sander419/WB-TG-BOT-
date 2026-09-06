@@ -44,6 +44,11 @@ const schema = z.object({
   // --- Криптография --------------------------------------------------------
   /** base64 от 32 байт. Генерация: npm run gen:key */
   SECRETS_ENCRYPTION_KEY: optionalString,
+  /**
+   * Предыдущий ключ на время ротации: им только расшифровывают.
+   * Убрать после `npm run rotate:key -- --apply`.
+   */
+  SECRETS_ENCRYPTION_KEY_PREVIOUS: optionalString,
 
   // --- AI ------------------------------------------------------------------
   GEMINI_API_KEY: optionalString,

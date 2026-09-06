@@ -41,7 +41,18 @@ function handle(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction): void => {
     fn(req, res).catch((error: unknown) => {
       const appError = toAppError(error);
-      logger.error({ err: appError, path: req.path }, 'Ошибка в роуте магазинов');
+
+      // Отказ по правилам — не сбой. Стек в лог не тащим: иначе ожидаемое
+      // «в проде выключено» выглядит как авария и топит настоящие ошибки.
+      if (appError.httpStatus < 500) {
+        logger.warn(
+          { code: appError.code, path: req.path, message: appError.message },
+          'Запрос отклонён',
+        );
+      } else {
+        logger.error({ err: appError, path: req.path }, 'Ошибка в роуте магазинов');
+      }
+
       if (res.headersSent) {
         next(error);
         return;

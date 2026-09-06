@@ -89,6 +89,7 @@ MARKETPLACE=wildberries WB_TEST_TOKEN=<токен> npm run check:connection
 | `npm run db:generate` | Сгенерировать миграцию из `server/db/schema.ts` |
 | `npm run db:migrate` | Применить миграции |
 | `npm run gen:key` | Ключ шифрования секретов продавцов |
+| `npm run rotate:key` | Перешифровать токены под новый ключ (без `--apply` — предпросмотр) |
 | `npm run check:connection` | Проверка боевого токена площадки |
 | `npm run smoke:db` | Сквозная проверка слоя данных на живой БД |
 
@@ -113,12 +114,42 @@ server/
 docs/                     Архитектура, подключение WB и Telegram, дорожная карта
 ```
 
+## Развёртывание
+
+```bash
+cp .env.production.example .env.production   # заполнить, в git не коммитится
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+Контейнер сам применяет миграции при старте (`dist/migrate.cjs`) и падает, если
+они не прошли — сервис не поднимется на схеме, которой не соответствует код.
+Порт приложения слушает только `127.0.0.1`: наружу его отдаёт nginx с TLS,
+потому что Telegram требует HTTPS для вебхука. Порт базы наружу не публикуется.
+
+Compose откажется стартовать без `SECRETS_ENCRYPTION_KEY`, `APP_URL` и пароля
+базы — молча подставленный дефолт в проде опаснее упавшего запуска.
+
+### Смена ключа шифрования
+
+```bash
+npm run gen:key                    # новый ключ
+# старый → SECRETS_ENCRYPTION_KEY_PREVIOUS, новый → SECRETS_ENCRYPTION_KEY
+npm run rotate:key                 # предпросмотр
+npm run rotate:key -- --apply      # перешифровать
+# убрать SECRETS_ENCRYPTION_KEY_PREVIOUS и перезапустить
+```
+
+Перешифровка идёт одной транзакцией: либо все записи, либо ни одной.
+Наполовину перешифрованная таблица без обоих ключей означала бы потерю
+части токенов продавцов.
+
 ## Документация
 
 - [Архитектура](docs/ARCHITECTURE.md) — слои, решения и почему именно так
 - [Подключение Wildberries](docs/INTEGRATION-WILDBERRIES.md) — токен, эндпоинты, грабли
 - [Подключение Telegram](docs/INTEGRATION-TELEGRAM.md) — бот, вебхук, алерты
 - [Дорожная карта](docs/ROADMAP.md) — этапы и критерии готовности
+- [Идеи и техдолг](docs/IDEAS.md) — что вне текущей очереди
 
 ## Правила проекта
 

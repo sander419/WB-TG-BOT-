@@ -1,0 +1,31 @@
+# Что не отправлять в контекст сборки.
+#
+# Без этого файла docker получает node_modules и .env: сборка тормозит,
+# а секреты уезжают в слои образа. Ровно так в чужой ветке 19 639 файлов
+# зависимостей попали в коммит.
+
+node_modules
+dist
+build
+
+.git
+.github
+
+# Секреты. Образцы нужны, сами файлы — нет.
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+*.log
+coverage
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Локальная разработка и документация в образе не нужны.
+docker-compose.yml
+docker-compose.prod.yml
+docs
+README.md

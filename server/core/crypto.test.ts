@@ -57,3 +57,43 @@ test('сравнение секретов устойчиво к разной д�
   assert.equal(safeCompare('abc', 'abd'), false);
   assert.equal(safeCompare('abc', 'abcd'), false);
 });
+
+// --- Ротация ключа: работа с явными ключами, без обращения к окружению ------
+
+const { encryptWith, decryptWith, decryptWithKeys, parseKey } = await import('./crypto');
+
+const keyA = randomBytes(32);
+const keyB = randomBytes(32);
+
+test('чужой ключ не расшифровывает, а падает', () => {
+  // Тег аутентичности GCM: подбор ключа не даёт «правдоподобный мусор».
+  const stored = encryptWith(keyA, 'токен');
+  assert.throws(() => decryptWith(keyB, stored));
+});
+
+test('при ротации читаем и новым, и старым ключом', () => {
+  const onOldKey = encryptWith(keyB, 'старый токен');
+  const onNewKey = encryptWith(keyA, 'новый токен');
+
+  assert.equal(decryptWithKeys([keyA, keyB], onOldKey), 'старый токен');
+  assert.equal(decryptWithKeys([keyA, keyB], onNewKey), 'новый токен');
+});
+
+test('без старого ключа сообщение подсказывает, что делать', () => {
+  const stored = encryptWith(keyB, 'x');
+  assert.throws(() => decryptWithKeys([keyA], stored), /SECRETS_ENCRYPTION_KEY_PREVIOUS/);
+});
+
+test('когда не подошёл ни один ключ, это видно из текста', () => {
+  const stored = encryptWith(randomBytes(32), 'x');
+  assert.throws(() => decryptWithKeys([keyA, keyB], stored), /ни текущим, ни предыдущим/);
+});
+
+test('битый формат не заставляет перебирать ключи', () => {
+  // Ошибка формата должна всплыть сразу, а не после безуспешного перебора.
+  assert.throws(() => decryptWithKeys([keyA, keyB], 'мусор'), /формат/);
+});
+
+test('ключ неверной длины отвергается с указанием переменной', () => {
+  assert.throws(() => parseKey(Buffer.alloc(16).toString('base64'), 'SECRETS_ENCRYPTION_KEY'), /SECRETS_ENCRYPTION_KEY/);
+});

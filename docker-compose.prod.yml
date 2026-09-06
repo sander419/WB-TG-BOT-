@@ -1,0 +1,81 @@
+# Продакшен-развёртывание. Локальная разработка — docker-compose.yml.
+#
+#   cp .env.production.example .env.production   # заполнить
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Секреты объявлены через ${VAR:?...}: compose откажется стартовать, если
+# переменная не задана. Молча подставленный дефолтный пароль в проде опаснее,
+# чем упавший запуск.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?нужен POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?нужен POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Порт наружу не публикуем: база доступна только приложению по внутренней сети.
+    # Для дампов — docker compose exec db pg_dump.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+      target: production
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_URL: ${APP_URL:?нужен APP_URL — по нему ставится Telegram webhook}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
+      # Без него приложение не расшифрует ни один токен продавца.
+      SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?нужен SECRETS_ENCRYPTION_KEY — npm run gen:key}
+      # Задаётся только на время ротации ключа, потом убирается.
+      SECRETS_ENCRYPTION_KEY_PREVIOUS: ${SECRETS_ENCRYPTION_KEY_PREVIOUS:-}
+
+      # Токены маркетплейсов сюда НЕ кладутся: они принадлежат магазину,
+      # а не инстансу, и лежат в БД зашифрованными.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_MODE: ${TELEGRAM_MODE:-webhook}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-ru}
+      DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-Europe/Moscow}
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-RUB}
+
+      USE_MOCK_DATA: ${USE_MOCK_DATA:-false}
+      ALLOW_MARKETPLACE_WRITES: ${ALLOW_MARKETPLACE_WRITES:-false}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-30}
+    ports:
+      # Наружу отдаёт nginx с TLS: Telegram требует HTTPS для вебхука.
+      - '127.0.0.1:3000:3000'
+    healthcheck:
+      # curl в образе нет, а fetch в Node есть.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/platform/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  pgdata:
