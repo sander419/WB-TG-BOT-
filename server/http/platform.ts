@@ -18,14 +18,34 @@ import { isWorkerRunning } from '../sync/worker';
 import { isFirstRun } from '../services/auth';
 import { getBot, isTelegramEnabled } from '../telegram/bot';
 import { knownUsersCount } from '../telegram/state';
+import { requireAuth, sessionTokenOf } from './middleware';
+import { resolveSession } from '../services/auth';
+
+/** Есть ли живая сессия. Не middleware: health отвечает и без неё. */
+async function isAuthenticated(req: Request): Promise<boolean> {
+  const token = sessionTokenOf(req);
+  if (!token || !isDatabaseConfigured()) return false;
+  try {
+    return (await resolveSession(token)) !== undefined;
+  } catch {
+    return false;
+  }
+}
 
 export function registerPlatformRoutes(app: Express): void {
   /**
    * Честный health-check: показывает, что реально настроено, а не «всё ACTIVE».
-   * Именно по нему проверяем готовность к подключению маркетплейса.
+   *
+   * Открыт без авторизации намеренно: по нему живость проверяет контейнер,
+   * и им же пользуется страница /setup до первого входа. Поэтому наружу идёт
+   * только то, что нужно этим двум сценариям — булевы признаки готовности.
+   * Подробности (имена незаданных переменных, список несверенных путей WB,
+   * число пользователей бота) видны только после входа: это карта установки,
+   * и отдавать её анониму незачем.
    */
-  app.get('/api/platform/health', async (_req: Request, res: Response) => {
+  app.get('/api/platform/health', async (req: Request, res: Response) => {
     const database = isDatabaseConfigured() ? await pingDatabase() : { ok: false, message: 'DATABASE_URL не задан' };
+    const authed = await isAuthenticated(req);
 
     res.json({
       status: 'ok',
@@ -33,25 +53,34 @@ export function registerPlatformRoutes(app: Express): void {
       useMockData: env.USE_MOCK_DATA,
       allowMarketplaceWrites: env.ALLOW_MARKETPLACE_WRITES,
       time: new Date().toISOString(),
-      subsystems: subsystemStatuses(),
-      database,
+      // Причину недоступности базы наружу не отдаём: в ней бывает строка
+      // подключения с хостом и пользователем.
+      database: authed ? database : { ok: database.ok },
       encryption: { configured: isEncryptionConfigured() },
-      telegram: { enabled: isTelegramEnabled(), mode: env.TELEGRAM_MODE, knownUsers: knownUsersCount() },
+      telegram: { enabled: isTelegramEnabled(), mode: env.TELEGRAM_MODE },
       syncWorker: { running: isWorkerRunning() },
       auth: { firstRun: isDatabaseConfigured() ? await isFirstRun().catch(() => null) : null },
-      warnings: {
-        unverifiedWbEndpoints: unverifiedEndpoints(),
-      },
+      ...(authed
+        ? {
+            subsystems: subsystemStatuses(),
+            telegramUsers: knownUsersCount(),
+            warnings: { unverifiedWbEndpoints: unverifiedEndpoints() },
+          }
+        : {}),
     });
   });
 
   /** Список площадок и что из них реально реализовано. */
-  app.get('/api/platform/connectors', (_req: Request, res: Response) => {
+  app.get('/api/platform/connectors', requireAuth, (_req: Request, res: Response) => {
     res.json({ connectors: connectorsSummary() });
   });
 
-  /** Состояние лимитеров — видно, упёрлись ли мы в лимит площадки. */
-  app.get('/api/platform/rate-limits', (_req: Request, res: Response) => {
+  /**
+   * Состояние лимитеров — видно, упёрлись ли мы в лимит площадки.
+   * Только для вошедших: ключи лимитеров содержат идентификаторы магазинов,
+   * то есть анониму отдавался бы список арендаторов установки.
+   */
+  app.get('/api/platform/rate-limits', requireAuth, (_req: Request, res: Response) => {
     res.json({ limiters: rateLimiters.snapshot() });
   });
 

@@ -15,7 +15,7 @@
  */
 import { AppError, ValidationError } from '../core/errors';
 import { childLogger } from '../core/logger';
-import { RateLimiter } from '../core/rateLimiter';
+import { AttemptLimiter } from '../core/attemptLimiter';
 import { hashPassword, needsRehash, validatePasswordStrength, verifyPassword } from '../core/password';
 import {
   countUsers,
@@ -42,27 +42,19 @@ const TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const LOGIN_ATTEMPTS = 5;
 const LOGIN_WINDOW_MS = 60_000;
 
-const loginLimiters = new Map<string, RateLimiter>();
-const lastTouch = new Map<string, number>();
-
-function limiterFor(key: string): RateLimiter {
-  const existing = loginLimiters.get(key);
-  if (existing) return existing;
-  const created = new RateLimiter({ capacity: LOGIN_ATTEMPTS, intervalMs: LOGIN_WINDOW_MS });
-  loginLimiters.set(key, created);
-  return created;
-}
-
 /**
- * Проверка лимита без ожидания: попытка сверх лимита должна получить отказ,
- * а не встать в очередь. Очередь превратила бы перебор в медленный, но рабочий.
+ * Отказ, а не очередь: попытка сверх лимита должна получить «нет».
+ * Раньше здесь использовался token bucket из rateLimiter.ts — он рассчитан
+ * на ожидание, поэтому проверка и списание шли двумя шагами (неатомарно),
+ * а брошенный `acquire()` оставлял висеть промис. Плюс словарь лимитеров рос
+ * без ограничения: ключ берётся из запроса, то есть память съедалась чужими
+ * данными.
  */
-function consumeAttempt(key: string): boolean {
-  const limiter = limiterFor(key);
-  if (limiter.snapshot().availableTokens < 1) return false;
-  void limiter.acquire();
-  return true;
-}
+const loginAttempts = new AttemptLimiter({ limit: LOGIN_ATTEMPTS, windowMs: LOGIN_WINDOW_MS });
+
+/** Когда последний раз обновляли отметку активности сессии. */
+const lastTouch = new Map<string, number>();
+const LAST_TOUCH_MAX_KEYS = 10_000;
 
 export interface RegisterInput {
   email: string;
@@ -121,8 +113,8 @@ export async function login(
 ): Promise<AuthResult> {
   const normalized = normalizeEmail(email);
 
-  const allowedByEmail = consumeAttempt(`email:${normalized}`);
-  const allowedByIp = context.ip === undefined ? true : consumeAttempt(`ip:${context.ip}`);
+  const allowedByEmail = loginAttempts.consume(`email:${normalized}`).allowed;
+  const allowedByIp = context.ip === undefined ? true : loginAttempts.consume(`ip:${context.ip}`).allowed;
   if (!allowedByEmail || !allowedByIp) {
     throw new AppError('Слишком много попыток входа. Подожди минуту.', { code: 'RATE_LIMITED' });
   }
@@ -142,6 +134,11 @@ export async function login(
   if (needsRehash(user.passwordHash)) {
     await updatePasswordHash(user.id, await hashPassword(password));
   }
+
+  // Успешный вход снимает счётчик: иначе один забытый пароль запирает
+  // человека на минуту уже после того, как он вспомнил правильный.
+  loginAttempts.reset(`email:${normalized}`);
+  if (context.ip !== undefined) loginAttempts.reset(`ip:${context.ip}`);
 
   await markLogin(user.id);
   return issueSession(user.id, context);
@@ -177,6 +174,9 @@ export async function resolveSession(token: string): Promise<SessionUser | undef
 
   const previous = lastTouch.get(user.sessionId) ?? 0;
   if (Date.now() - previous > TOUCH_INTERVAL_MS) {
+    // Словарь ограничен: он всего лишь бережёт БД от лишней записи, и потеря
+    // отметки безобидна — в худшем случае обновим last_seen_at раньше срока.
+    if (lastTouch.size >= LAST_TOUCH_MAX_KEYS) lastTouch.clear();
     lastTouch.set(user.sessionId, Date.now());
     await touchSession(user.sessionId).catch(() => undefined);
   }

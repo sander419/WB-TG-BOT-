@@ -259,3 +259,37 @@ test('пустой список ничего не пишет и не падае�
     assert.equal(await upsertReviews(tenant, []), 0);
   });
 });
+
+test('снимок исчезнувшего склада не считается вечно', skipWithoutDb, async () => {
+  // Площадка перестала отдавать склад — товар оттуда вывезли. Без ограничения
+  // по свежести последний известный остаток жил бы вечно, запас дней выходил
+  // завышенным, и алерт об окончании товара не сработал бы.
+  await withTenant(async (tenant) => {
+    await upsertProducts(tenant, [product()]);
+
+    const longAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    await insertStockSnapshots(tenant, [
+      stock({ warehouseId: 'Закрытый склад', quantity: 500, updatedAt: longAgo }),
+      stock({ warehouseId: 'Коледино', quantity: 3 }),
+    ]);
+
+    const latest = await fetchLatestStocks(tenant);
+
+    assert.deepEqual(
+      latest.map((item) => item.warehouseId),
+      ['Коледино'],
+      'протухший снимок попал в расчёт',
+    );
+    assert.equal(latest[0]?.quantity, 3);
+  });
+});
+
+test('порог свежести остатков настраивается', skipWithoutDb, async () => {
+  await withTenant(async (tenant) => {
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    await insertStockSnapshots(tenant, [stock({ quantity: 42, updatedAt: fiveDaysAgo })]);
+
+    assert.equal((await fetchLatestStocks(tenant)).length, 0, 'по умолчанию три дня');
+    assert.equal((await fetchLatestStocks(tenant, 30)).length, 1, 'с большим окном снимок виден');
+  });
+});

@@ -12,10 +12,31 @@ import { connectorsSummary } from './connectors/registry';
 import { unverifiedEndpoints } from './connectors/wildberries/endpoints';
 import { closeDatabase } from './db/client';
 import { registerAuthRoutes } from './http/auth';
+import { rateLimitByIp, requireAuth } from './http/middleware';
 import { registerPlatformRoutes } from './http/platform';
 import { registerStoreRoutes } from './http/stores';
 import { startSyncWorker, stopSyncWorker } from './sync/worker';
 import { startTelegramBot, stopTelegramBot } from './telegram/bot';
+
+/**
+ * Защита демо-эндпоинтов, которые тратят деньги.
+ *
+ * `/api/chat`, `/api/generate-*` ходят в Gemini на каждый запрос. Открытые
+ * наружу, они превращаются в чужой счёт за наш ключ. В production требуем
+ * сессию; в разработке демо продолжает работать без входа, но частота
+ * ограничена в обоих режимах.
+ *
+ * Убирается вместе с самими демо-эндпоинтами на этапе 3 дорожной карты.
+ */
+export function protectPaidDemoRoutes(app: Express): void {
+  const paid = ['/api/chat', '/api/generate-seo', '/api/generate-launch-plan', '/api/generate-review-reply'];
+  const limit = rateLimitByIp(30, 60_000);
+
+  for (const path of paid) {
+    app.post(path, limit);
+    if (isProduction) app.post(path, requireAuth);
+  }
+}
 
 export function registerPlatform(app: Express): void {
   // За nginx req.ip иначе равен адресу прокси, и ограничение частоты

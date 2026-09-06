@@ -10,6 +10,7 @@ import { isProduction } from '../config/env';
 import { AppError, toAppError } from '../core/errors';
 import { logger } from '../core/logger';
 import { safeCompare } from '../core/crypto';
+import { AttemptLimiter } from '../core/attemptLimiter';
 import { resolveSession } from '../services/auth';
 import type { MemberRole, SessionUser } from '../db/repositories/auth';
 
@@ -31,7 +32,16 @@ export function readCookie(req: Request, name: string): string | undefined {
     const index = part.indexOf('=');
     if (index === -1) continue;
     if (part.slice(0, index).trim() !== name) continue;
-    return decodeURIComponent(part.slice(index + 1).trim());
+
+    const raw = part.slice(index + 1).trim();
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      // Битая процентная последовательность («%») роняет decodeURIComponent
+      // с URIError. Отдать 500 из-за кривой куки нельзя — это делается
+      // одним запросом, то есть это способ положить эндпоинт.
+      return raw;
+    }
   }
   return undefined;
 }
@@ -153,28 +163,23 @@ export function tenantOf(req: Request): { organizationId: string; auth: SessionU
  * состояние в памяти процесса, как и остальные лимитеры.
  */
 export function rateLimitByIp(limit: number, windowMs: number): RequestHandler {
-  const hits = new Map<string, { count: number; resetAt: number }>();
+  // AttemptLimiter сам вычищает истёкшие ключи и держит потолок: ключ здесь —
+  // адрес клиента, то есть значение из запроса, и словарь без уборки был бы
+  // способом съесть память чужими данными.
+  const limiter = new AttemptLimiter({ limit, windowMs });
 
   return (req, res, next) => {
     const key = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-    const now = Date.now();
-    const entry = hits.get(key);
+    const result = limiter.consume(key);
 
-    if (!entry || entry.resetAt <= now) {
-      hits.set(key, { count: 1, resetAt: now + windowMs });
-      next();
-      return;
-    }
-
-    if (entry.count >= limit) {
-      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000));
+    if (!result.allowed) {
+      res.setHeader('Retry-After', Math.ceil(result.retryAfterMs / 1000));
       res.status(429).json({
         error: { code: 'RATE_LIMITED', message: 'Слишком много запросов. Подожди немного.', retryable: true },
       });
       return;
     }
 
-    entry.count += 1;
     next();
   };
 }

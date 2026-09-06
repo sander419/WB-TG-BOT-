@@ -7,7 +7,7 @@
  * Отдельный Redis/RabbitMQ добавит инфраструктуру, но не даст ничего сверх этого
  * на нашем объёме.
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '../client';
 import { syncJobs } from '../schema';
 
@@ -91,6 +91,25 @@ export async function latestJobs(storeId: string, limit = 20) {
     .where(eq(syncJobs.storeId, storeId))
     .orderBy(desc(syncJobs.createdAt))
     .limit(limit);
+}
+
+/**
+ * Остались ли по магазину незавершённые задачи любого модуля.
+ * Нужно, чтобы считать алерты один раз за цикл, а не после каждого модуля
+ * на наполовину обновлённых данных.
+ */
+export async function hasAnyPendingJob(storeId: string): Promise<boolean> {
+  const rows = await getDb()
+    .select({ id: syncJobs.id })
+    .from(syncJobs)
+    .where(
+      and(
+        eq(syncJobs.storeId, storeId),
+        inArray(syncJobs.status, ['queued', 'running']),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function hasPendingJob(storeId: string, module: SyncModule): Promise<boolean> {

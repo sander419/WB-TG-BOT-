@@ -70,6 +70,9 @@ interface StockFactRow extends Record<string, unknown> {
   captured_at: Date;
 }
 
+/** Снимки старше этого срока считаем протухшими. */
+const STOCK_FRESHNESS_DAYS = 3;
+
 /**
  * Последний снимок остатков по каждой паре (товар, склад).
  *
@@ -78,8 +81,19 @@ interface StockFactRow extends Record<string, unknown> {
  * в снимке его нет, а сопоставление скорости продаж идёт именно по нему.
  * Товары, которых ещё нет в каталоге (синхронизация остатков обогнала
  * синхронизацию карточек), не выбрасываем — подставляем внешний id.
+ *
+ * ⚠️ Ограничение по свежести обязательно. Без него последний известный снимок
+ * склада, который площадка перестала отдавать (товар оттуда вывезли), считался
+ * бы актуальным вечно. Остаток выглядел бы завышенным, запас дней — большим,
+ * и алерт об окончании товара не сработал бы — ровно тот случай, ради которого
+ * всё и делалось.
  */
-export async function fetchLatestStocks(scope: StoreScope): Promise<StockFact[]> {
+export async function fetchLatestStocks(
+  scope: StoreScope,
+  freshnessDays = STOCK_FRESHNESS_DAYS,
+): Promise<StockFact[]> {
+  const since = new Date(Date.now() - freshnessDays * 24 * 60 * 60 * 1000);
+
   const result = await getDb().execute<StockFactRow>(sql`
     select distinct on (s.external_id, s.warehouse_id)
       s.external_id     as external_id,
@@ -93,6 +107,7 @@ export async function fetchLatestStocks(scope: StoreScope): Promise<StockFact[]>
       on p.store_id = s.store_id and p.external_id = s.external_id
     where s.organization_id = ${scope.organizationId}
       and s.store_id = ${scope.storeId}
+      and s.captured_at >= ${since}
     order by s.external_id, s.warehouse_id, s.captured_at desc
   `);
 

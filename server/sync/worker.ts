@@ -20,6 +20,7 @@ import {
   claimNextJob,
   completeJob,
   failJob,
+  hasAnyPendingJob,
   hasPendingJob,
   requeueStaleJobs,
   SYNC_MODULES,
@@ -61,12 +62,16 @@ export async function processNextJob(): Promise<boolean> {
     // Успешная синхронизация снимает статус ошибки, выставленный прошлым падением.
     if (store.status === 'error') await setStoreStatus(store.id, 'active');
 
-    // Алерты считаются на свежих данных. Их сбой не должен ронять синхронизацию:
-    // непришедшее уведомление хуже, чем незаписанные данные, но ненамного.
-    try {
-      await runAlertsForStore(store.organizationId, store.id);
-    } catch (error) {
-      log.error({ err: toAppError(error) }, 'Не удалось разослать алерты');
+    // Алерты считаются один раз за цикл, когда по магазину не осталось задач.
+    // Раньше они запускались после каждого модуля: четыре прогона на цикл,
+    // и первые три — на полусинхронизированных данных. Остатки уже свежие,
+    // а заказы ещё вчерашние — и запас дней выходил неверным.
+    if (!(await hasAnyPendingJob(store.id))) {
+      try {
+        await runAlertsForStore(store.organizationId, store.id);
+      } catch (error) {
+        log.error({ err: toAppError(error) }, 'Не удалось разослать алерты');
+      }
     }
 
     return true;

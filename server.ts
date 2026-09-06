@@ -3,7 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import "dotenv/config";
-import { registerPlatform, startPlatform } from "./server/bootstrap";
+import { protectPaidDemoRoutes, registerPlatform, startPlatform } from "./server/bootstrap";
 import { env } from "./server/config/env";
 
 const app = express();
@@ -11,9 +11,13 @@ const PORT = env.PORT;
 
 app.use(express.json());
 
-// Платформенный слой: /api/platform/* и Telegram-webhook.
+// Платформенный слой: /api/platform/*, вход и Telegram-webhook.
 // Демо-эндпоинты ниже остаются на месте до подключения реальных коннекторов.
 registerPlatform(app);
+
+// Демо-эндпоинты, которые ходят в Gemini, стоят денег: ограничиваем частоту,
+// а в production требуем вход. Регистрируется ДО них, иначе не сработает.
+protectPaidDemoRoutes(app);
 
 // Initialize Gemini SDK with telemetry header
 const getGeminiClient = () => {
