@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: analytics_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-analytics}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password_change_me}
+      POSTGRES_DB: ${DB_NAME:-analytics_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-analytics}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: analytics_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-analytics}:${DB_PASSWORD:-secure_password_change_me}@db:5432/${DB_NAME:-analytics_db}
+      PORT: 3000
+      # WB & Telegram Tokens (Inject via secrets or env)
+      WB_API_KEY: ${WB_API_KEY}
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN}
+    ports:
+      - "3000:3000"
+    networks:
+      - app_network
+    command: >
+      sh -c "npm run db:migrate && npm run start"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgdata:
+
+networks:
+  app_network:
+    driver: bridge
